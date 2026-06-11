@@ -1,0 +1,53 @@
+# Build outputs
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+
+# C/C++ artifacts
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.dylib
+*.exe
+*.pdb
+*.ilk
+*.exp
+
+# Visual Studio / MSBuild
+.vs/
+*.user
+*.suo
+*.vcxproj.user
+Debug/
+Release/
+x64/
+x86/
+Win32/
+
+# Runtime output and logs
+output/
+logs/
+*.log
+*.tmp
+*.temp
+
+# Dependency and environment folders
+node_modules/
+.venv/
+venv/
+env/
+
+# Editor and OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
