@@ -13,6 +13,8 @@
 //   - Oracle 数据库实例可访问
 // =============================================================================
 
+#include <unordered_map>
+#include <string>
 #include "InventoryDAO.hpp"
 
 // ---- OCCI headers ----
@@ -286,6 +288,14 @@ ReceiveResult InventoryDAO::receiveInbound(
     int64_t                 operator_id,
     std::optional<int64_t>  expected_version)
 {
+    std::unordered_map<std::string, std::string> binds{
+        {"p_sku_id", request.skuId},
+        {"p_quantity", std::to_string(request.quantity)},
+        {"p_warehouse_id", request.warehouseId}
+    };
+
+    if (request.operatorId.has_value() && !request.operatorId->empty()) {
+        binds.emplace("p_operator_id", *request.operatorId);
     ReceiveResult r;
     Statement* stmt = nullptr;
 
@@ -333,6 +343,24 @@ DaoResult InventoryDAO::cancelInboundOrder(
     int64_t inbound_id,
     int64_t operator_id)
 {
+    std::unordered_map<std::string, std::string> binds{
+        {"sku_id", skuId}
+    };
+
+    auto results = oracle().query(
+        "SELECT COUNT(*) AS CNT FROM SKU WHERE sku_id = :sku_id AND is_active = 1",
+        binds
+    );
+
+    if (!results.empty()) {
+        try {
+            int count = std::stoi(results[0].at("CNT"));
+            return count > 0;
+        } catch (...) {
+            return false;
+        }
+    }
+    return false;
     Statement* stmt = nullptr;
     try {
         pImpl_->setOperatorContext(operator_id);
