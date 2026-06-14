@@ -1,33 +1,72 @@
 import { defineStore } from 'pinia';
+import authApi from '../api/auth';
+
+const readStoredUser = () => {
+  try {
+    return JSON.parse(window.localStorage.getItem('wms_user') || 'null');
+  } catch {
+    return null;
+  }
+};
 
 export const useUserStore = defineStore('user', {
   state: () => ({
-    token: localStorage.getItem('MIS_TOKEN') || '',
-    role: localStorage.getItem('MIS_ROLE') || '',
-    profile: JSON.parse(localStorage.getItem('MIS_PROFILE') || 'null'),
+    token: window.localStorage.getItem('wms_token') || '',
+    profile: readStoredUser(),
+    loading: false
   }),
   getters: {
-    isAdmin: (state) => state.role === 'ADMIN',
-    isLoggedIn: (state) => Boolean(state.token),
+    isAuthenticated: (state) => Boolean(state.token),
+    realName: (state) => state.profile?.realName || state.profile?.username || '未登录',
+    roleName: (state) => state.profile?.roleName || '访客',
+    role: (state) => state.profile?.role || 'guest'
   },
   actions: {
-    setSession({ token, role, profile }) {
+    persistSession(token, user) {
       this.token = token;
-      this.role = role;
-      this.profile = profile;
-
-      localStorage.setItem('MIS_TOKEN', token);
-      localStorage.setItem('MIS_ROLE', role);
-      localStorage.setItem('MIS_PROFILE', JSON.stringify(profile));
+      this.profile = user;
+      window.localStorage.setItem('wms_token', token);
+      window.localStorage.setItem('wms_user', JSON.stringify(user));
     },
-    logout() {
+    async login(payload) {
+      this.loading = true;
+
+      try {
+        const result = await authApi.login(payload);
+        this.persistSession(result.token, result.user);
+        return result;
+      } finally {
+        this.loading = false;
+      }
+    },
+    async register(payload) {
+      this.loading = true;
+
+      try {
+        const result = await authApi.register(payload);
+        this.persistSession(result.token, result.user);
+        return result;
+      } finally {
+        this.loading = false;
+      }
+    },
+    async fetchProfile() {
+      if (!this.token) return null;
+
+      const result = await authApi.getCurrentUser();
+      this.profile = result.user;
+      window.localStorage.setItem('wms_user', JSON.stringify(result.user));
+      return result.user;
+    },
+    async logout() {
+      if (this.token) {
+        await authApi.logout();
+      }
+
       this.token = '';
-      this.role = '';
       this.profile = null;
-
-      localStorage.removeItem('MIS_TOKEN');
-      localStorage.removeItem('MIS_ROLE');
-      localStorage.removeItem('MIS_PROFILE');
-    },
-  },
+      window.localStorage.removeItem('wms_token');
+      window.localStorage.removeItem('wms_user');
+    }
+  }
 });

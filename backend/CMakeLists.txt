@@ -6,45 +6,71 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Threads REQUIRED)
-find_package(httplib CONFIG REQUIRED)
-find_package(nlohmann_json CONFIG REQUIRED)
 
-# Oracle OCI/OCCI — 23ai Free 默认路径
-set(ORACLE_HOME "D:/tools/26ai/dbhomeFree" CACHE PATH "Oracle 23ai Free 安装目录")
+# ---- httplib (header-only, at D:/dev/db) ----
+find_path(HTTPLIB_INCLUDE_DIR httplib.h
+    HINTS "D:/dev/db"
+)
+if(NOT HTTPLIB_INCLUDE_DIR)
+    message(FATAL_ERROR "httplib.h not found. Expected at D:/dev/db")
+endif()
+
+# ---- nlohmann_json (header-only, bundled in include/) ----
+find_path(NLOHMANN_JSON_INCLUDE_DIR nlohmann/json.hpp
+    HINTS "${CMAKE_SOURCE_DIR}/include"
+)
+if(NOT NLOHMANN_JSON_INCLUDE_DIR)
+    message(FATAL_ERROR "nlohmann/json.hpp not found in include/")
+endif()
+
+# ---- Oracle OCI — 23ai Free ----
+set(ORACLE_HOME "D:/tools/26ai/dbhomeFree" CACHE PATH "Oracle 23ai Free install dir")
 
 find_path(OCI_INCLUDE_DIR oci.h
     HINTS "${ORACLE_HOME}/oci/include"
 )
 find_library(OCI_LIBRARY NAMES oci
-    HINTS "${ORACLE_HOME}/oci/lib/msvc"
-)
-find_library(OCCI_LIBRARY NAMES oraocci23
-    HINTS "${ORACLE_HOME}/oci/lib/msvc"
+    HINTS "${ORACLE_HOME}/oci/lib/mingw"
 )
 
-if(NOT OCI_INCLUDE_DIR OR NOT OCI_LIBRARY OR NOT OCCI_LIBRARY)
-    message(FATAL_ERROR "Oracle OCI/OCCI not found. Check ORACLE_HOME=${ORACLE_HOME}")
+if(NOT OCI_INCLUDE_DIR OR NOT OCI_LIBRARY)
+    message(WARNING "Oracle OCI not found. Building without Oracle support (in-memory mode only).")
+    set(MIS_HAS_ORACLE OFF)
+else()
+    set(MIS_HAS_ORACLE ON)
+    add_compile_definitions(MIS_HAS_ORACLE)
 endif()
 
 add_executable(mis_backend
     src/main.cpp
-    src/dao/OracleConnector.cpp
-    src/dao/InventoryDAO.cpp
     src/services/InventoryService.cpp
+    src/controllers/AuthController.cpp
     src/controllers/InventoryController.cpp
+    src/controllers/SkuController.cpp
+    src/controllers/SupplierController.cpp
 )
+
+if(MIS_HAS_ORACLE)
+    target_sources(mis_backend PRIVATE src/dao/OracleConnector.cpp)
+endif()
 
 target_include_directories(mis_backend
     PRIVATE
         include
-        ${OCI_INCLUDE_DIR}
+        ${HTTPLIB_INCLUDE_DIR}
+        ${NLOHMANN_JSON_INCLUDE_DIR}
 )
+
+if(MIS_HAS_ORACLE)
+    target_include_directories(mis_backend PRIVATE ${OCI_INCLUDE_DIR})
+    target_link_libraries(mis_backend PRIVATE ${OCI_LIBRARY})
+endif()
 
 target_link_libraries(mis_backend
     PRIVATE
-        httplib::httplib
-        nlohmann_json::nlohmann_json
         Threads::Threads
-        ${OCI_LIBRARY}
-        ${OCCI_LIBRARY}
+        ws2_32
 )
+
+# 静态链接 gcc/libstdc++/winpthread（避免 DLL 依赖）
+target_link_options(mis_backend PRIVATE -static-libgcc -static-libstdc++ -Wl,-Bstatic,-lwinpthread)
