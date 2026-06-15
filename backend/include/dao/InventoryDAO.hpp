@@ -23,6 +23,7 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <mutex>
 
 namespace wms {
 namespace dao {
@@ -221,6 +222,7 @@ public:
 private:
     class Impl;
     std::unique_ptr<Impl> pImpl_;
+    mutable std::mutex mutex_;
 };
 
 } // namespace dao

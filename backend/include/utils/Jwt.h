@@ -1,21 +1,43 @@
+// =============================================================================
+// Jwt.h — 轻量 JWT 工具（HS256，基于 Windows CNG）
+//
+// 使用方式：
+//   auto token = mis::utils::Jwt::create({{"userId", 1}, {"username", "admin"}});
+//   auto claims = mis::utils::Jwt::verify(token);
+// =============================================================================
+
 #pragma once
 
 #include <nlohmann/json.hpp>
 #include <string>
+#include <cstdint>
 
 namespace mis::utils {
 
-class Jwt {
+class Jwt
+{
 public:
-    /// 签发 JWT（HS256），payload 中嵌入 userId / username / role
-    static std::string sign(int userId, const std::string& username, const std::string& role);
+    // JWT 签名密钥（生产应从配置文件或环境变量读取）
+    static constexpr const char* SECRET = "wms-jwt-secret-key-2026";
 
-    /// 验签并解析 payload，失败抛异常
-    static nlohmann::json verify(const std::string& token);
+    // 创建 JWT token
+    // @param payload  自定义 claims（会自动添加 iat / exp）
+    // @param secret   签名密钥
+    // @return         三段式 JWT 字符串
+    static std::string create(const nlohmann::json& payload,
+                              const std::string& secret = SECRET);
+
+    // 验证 JWT token 并返回 claims
+    // @param token   三段式 JWT 字符串
+    // @param secret  签名密钥
+    // @return        payload claims（若验证失败则抛出 std::runtime_error）
+    static nlohmann::json verify(const std::string& token,
+                                 const std::string& secret = SECRET);
 
 private:
-    // HMAC-SHA256 签名密钥（正式环境应从配置文件/环境变量读取）
-    static constexpr const char* SECRET = "mis-wms-secret-key-2026";
+    static std::string base64UrlEncode(const std::string& data);
+    static std::string base64UrlDecode(const std::string& data);
+    static std::string hmacSha256(const std::string& key, const std::string& data);
 };
 
 } // namespace mis::utils

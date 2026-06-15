@@ -205,6 +205,7 @@ CreateResult InventoryDAO::createInboundOrder(
     int64_t             created_by,
     const std::string&  lines_json)
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     CreateResult r;
     Statement* stmt = nullptr;
 
@@ -253,6 +254,7 @@ DaoResult InventoryDAO::submitInboundOrder(
     int64_t inbound_id,
     int64_t operator_id)
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     Statement* stmt = nullptr;
     try {
         pImpl_->setOperatorContext(operator_id);
@@ -288,7 +290,7 @@ ReceiveResult InventoryDAO::receiveInbound(
     int64_t                 operator_id,
     std::optional<int64_t>  expected_version)
 {
-
+    std::lock_guard<std::mutex> lock(mutex_);
     ReceiveResult r;
     Statement* stmt = nullptr;
 
@@ -336,7 +338,7 @@ DaoResult InventoryDAO::cancelInboundOrder(
     int64_t inbound_id,
     int64_t operator_id)
 {
-
+    std::lock_guard<std::mutex> lock(mutex_);
     Statement* stmt = nullptr;
     try {
         pImpl_->setOperatorContext(operator_id);
@@ -367,6 +369,7 @@ DaoResult InventoryDAO::cancelInboundOrder(
 // 2.1.5 查询 — getInboundOrder（含明细行）
 // =========================================================================
 std::optional<InboundOrder> InventoryDAO::getInboundOrder(int64_t inbound_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
     InboundOrder order;
     Statement* stmt = nullptr;
     ResultSet* rs   = nullptr;
@@ -440,6 +443,7 @@ std::vector<InboundOrder> InventoryDAO::listInboundOrders(
     int                 limit,
     int                 offset)
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     std::vector<InboundOrder> orders;
     Statement* stmt = nullptr;
     ResultSet* rs   = nullptr;
@@ -505,6 +509,7 @@ std::vector<InboundOrder> InventoryDAO::listInboundOrders(
 // 2.1.7 查询 — getInventory
 // =========================================================================
 std::optional<InventoryRecord> InventoryDAO::getInventory(int64_t product_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
     Statement* stmt = nullptr;
     ResultSet* rs   = nullptr;
 
@@ -540,6 +545,7 @@ std::optional<InventoryRecord> InventoryDAO::getInventory(int64_t product_id) {
 // 2.1.8 查询 — listInventory
 // =========================================================================
 std::vector<InventoryRecord> InventoryDAO::listInventory(int limit, int offset) {
+    std::lock_guard<std::mutex> lock(mutex_);
     std::vector<InventoryRecord> records;
     Statement* stmt = nullptr;
     ResultSet* rs   = nullptr;

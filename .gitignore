@@ -51,3 +51,15 @@ env/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Local tool config
+.claude/
+.workbuddy/
+
+# Frontend build output
+frontend/dist/
+
+# Personal docs / task lists
+mock清单.md
+*任务清单.md
+*.docx

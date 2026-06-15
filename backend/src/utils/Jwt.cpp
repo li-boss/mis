@@ -1,143 +1,247 @@
-// =============================================================================
-// Jwt — HMAC-SHA256 JWT 签发与验证
-//
-// 实现参考 RFC 7519，使用内置纯 C++ HMAC-SHA256。
-// 无第三方 JWT 库依赖。
-// =============================================================================
-
 #include "utils/Jwt.h"
-#include "utils/Sha256.hpp"
+#include <bcrypt.h>
 
-#include <cstring>
-#include <sstream>
 #include <stdexcept>
+#include <chrono>
+#include <vector>
+#include <cstring>
 
 namespace mis::utils {
 
-namespace {
+// ---- Base64URL 编解码 ----
 
-// ---- Base64URL (RFC 4648 §5) ----
-static std::string base64UrlEncode(const unsigned char* data, size_t len)
+static const char BASE64_CHARS[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+std::string Jwt::base64UrlEncode(const std::string& data)
 {
-    static const char b64[] =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    std::string result;
+    result.reserve(((data.size() + 2) / 3) * 4);
 
-    std::string out;
-    out.reserve(((len + 2) / 3) * 4);
-
-    for (size_t i = 0; i < len; i += 3) {
-        unsigned int val = static_cast<unsigned int>(data[i]) << 16;
-        if (i + 1 < len) val |= static_cast<unsigned int>(data[i + 1]) << 8;
-        if (i + 2 < len) val |= static_cast<unsigned int>(data[i + 2]);
-
-        out.push_back(b64[(val >> 18) & 0x3F]);
-        out.push_back(b64[(val >> 12) & 0x3F]);
-        out.push_back(i + 1 < len ? b64[(val >> 6) & 0x3F] : '=');
-        out.push_back(i + 2 < len ? b64[val & 0x3F] : '=');
+    size_t i = 0;
+    for (; i + 2 < data.size(); i += 3) {
+        uint32_t triple = (static_cast<unsigned char>(data[i]) << 16)
+                        | (static_cast<unsigned char>(data[i + 1]) << 8)
+                        |  static_cast<unsigned char>(data[i + 2]);
+        result.push_back(BASE64_CHARS[(triple >> 18) & 0x3F]);
+        result.push_back(BASE64_CHARS[(triple >> 12) & 0x3F]);
+        result.push_back(BASE64_CHARS[(triple >> 6)  & 0x3F]);
+        result.push_back(BASE64_CHARS[ triple        & 0x3F]);
     }
-    return out;
+
+    // 处理剩余字节
+    if (i < data.size()) {
+        uint32_t triple = static_cast<unsigned char>(data[i]) << 16;
+        if (i + 1 < data.size()) {
+            triple |= static_cast<unsigned char>(data[i + 1]) << 8;
+        }
+        result.push_back(BASE64_CHARS[(triple >> 18) & 0x3F]);
+        result.push_back(BASE64_CHARS[(triple >> 12) & 0x3F]);
+        if (i + 1 < data.size()) {
+            result.push_back(BASE64_CHARS[(triple >> 6) & 0x3F]);
+        } else {
+            result.push_back('=');
+        }
+        result.push_back('=');
+    }
+
+    // 转为 Base64URL: + → -, / → _, 去尾部 =
+    for (char& c : result) {
+        if (c == '+') c = '-';
+        else if (c == '/') c = '_';
+    }
+    while (!result.empty() && result.back() == '=') {
+        result.pop_back();
+    }
+
+    return result;
 }
 
-static std::string base64UrlDecode(const std::string& in)
+std::string Jwt::base64UrlDecode(const std::string& data)
 {
-    static const signed char b64rev[256] = {
-        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,62,-1,-1,
-        52,53,54,55,56,57,58,59,60,61,-1,-1,-1,-1,-1,-1,
-        -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,
-        15,16,17,18,19,20,21,22,23,24,25,-1,-1,-1,-1,63,
-        -1,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,
-        41,42,43,44,45,46,47,48,49,50,51,-1,-1,-1,-1,-1,
-        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-        -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-    };
+    // Base64URL → 标准 Base64
+    std::string b64 = data;
+    for (char& c : b64) {
+        if (c == '-') c = '+';
+        else if (c == '_') c = '/';
+    }
+    // 补齐 padding
+    while (b64.size() % 4 != 0) {
+        b64.push_back('=');
+    }
 
-    std::string out;
-    out.reserve(in.size());
+    // 解码表
+    static int decodeTable[256] = {};
+    static bool tableBuilt = false;
+    if (!tableBuilt) {
+        for (int j = 0; j < 256; ++j) decodeTable[j] = -1;
+        for (int j = 0; j < 64; ++j) decodeTable[static_cast<unsigned char>(BASE64_CHARS[j])] = j;
+        tableBuilt = true;
+    }
 
-    unsigned int buf = 0;
-    int bits = 0;
-    for (char ch : in) {
-        if (ch == '=') break;
-        signed char val = b64rev[static_cast<unsigned char>(ch)];
-        if (val < 0) continue;
-        buf = (buf << 6) | static_cast<unsigned int>(val);
-        bits += 6;
-        if (bits >= 8) {
-            bits -= 8;
-            out.push_back(static_cast<char>((buf >> bits) & 0xFF));
+    std::string result;
+    result.reserve((b64.size() / 4) * 3);
+
+    for (size_t i = 0; i < b64.size(); i += 4) {
+        int a = decodeTable[static_cast<unsigned char>(b64[i])];
+        int b = decodeTable[static_cast<unsigned char>(b64[i + 1])];
+        int c = (b64[i + 2] == '=') ? 0 : decodeTable[static_cast<unsigned char>(b64[i + 2])];
+        int d = (b64[i + 3] == '=') ? 0 : decodeTable[static_cast<unsigned char>(b64[i + 3])];
+
+        if (a < 0 || b < 0) {
+            throw std::runtime_error("Invalid base64 input");
+        }
+
+        uint32_t triple = (static_cast<uint32_t>(a) << 18)
+                        | (static_cast<uint32_t>(b) << 12)
+                        | (static_cast<uint32_t>(c) << 6)
+                        |  static_cast<uint32_t>(d);
+
+        result.push_back(static_cast<char>((triple >> 16) & 0xFF));
+        if (b64[i + 2] != '=') {
+            result.push_back(static_cast<char>((triple >> 8) & 0xFF));
+        }
+        if (b64[i + 3] != '=') {
+            result.push_back(static_cast<char>(triple & 0xFF));
         }
     }
-    return out;
+
+    return result;
 }
 
-} // anonymous namespace
+// ---- HMAC-SHA256 via Windows CNG ----
 
-// ---- 签发 ----
-std::string Jwt::sign(int userId, const std::string& username, const std::string& role)
+std::string Jwt::hmacSha256(const std::string& key, const std::string& data)
 {
-    // Header: {"alg":"HS256","typ":"JWT"}
-    std::string header = R"({"alg":"HS256","typ":"JWT"})";
-    std::string headerB64 = base64UrlEncode(
-        reinterpret_cast<const unsigned char*>(header.data()), header.size());
+    BCRYPT_ALG_HANDLE hAlg = nullptr;
+    BCRYPT_HASH_HANDLE hHash = nullptr;
+    NTSTATUS status;
 
-    // Payload
-    nlohmann::json payload;
-    payload["userId"] = userId;
-    payload["username"] = username;
-    payload["role"] = role;
-    payload["exp"] = 2147483647; // "不过期"（2038-01-19）
-
-    std::string payloadStr = payload.dump();
-    std::string payloadB64 = base64UrlEncode(
-        reinterpret_cast<const unsigned char*>(payloadStr.data()), payloadStr.size());
-
-    std::string signingInput = headerB64 + "." + payloadB64;
-    auto sig = HmacSha256::sign(
-        reinterpret_cast<const uint8_t*>(SECRET), strlen(SECRET),
-        reinterpret_cast<const uint8_t*>(signingInput.data()), signingInput.size());
-    std::string sigB64 = base64UrlEncode(sig.data(), sig.size());
-
-    return signingInput + "." + sigB64;
-}
-
-// ---- 验签 ----
-nlohmann::json Jwt::verify(const std::string& token)
-{
-    auto dot1 = token.find('.');
-    if (dot1 == std::string::npos) throw std::runtime_error("invalid token format (no dot1)");
-    auto dot2 = token.find('.', dot1 + 1);
-    if (dot2 == std::string::npos) throw std::runtime_error("invalid token format (no dot2)");
-
-    std::string headerB64 = token.substr(0, dot1);
-    std::string payloadB64 = token.substr(dot1 + 1, dot2 - dot1 - 1);
-    std::string sigB64 = token.substr(dot2 + 1);
-
-    // 验签
-    std::string signingInput = headerB64 + "." + payloadB64;
-    auto expectedSig = HmacSha256::sign(
-        reinterpret_cast<const uint8_t*>(SECRET), strlen(SECRET),
-        reinterpret_cast<const uint8_t*>(signingInput.data()), signingInput.size());
-    std::string expectedSigB64 = base64UrlEncode(expectedSig.data(), expectedSig.size());
-
-    // 常量时间比较
-    if (sigB64.size() != expectedSigB64.size()) throw std::runtime_error("signature mismatch");
-    bool ok = true;
-    for (size_t i = 0; i < sigB64.size(); ++i) {
-        if (sigB64[i] != expectedSigB64[i]) ok = false;
+    // 打开 SHA-256 算法提供程序（HMAC 模式）
+    status = BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_SHA256_ALGORITHM, nullptr,
+                                          BCRYPT_ALG_HANDLE_HMAC_FLAG);
+    if (!BCRYPT_SUCCESS(status)) {
+        throw std::runtime_error("BCryptOpenAlgorithmProvider failed: " +
+                                 std::to_string(status));
     }
-    if (!ok) throw std::runtime_error("signature mismatch");
 
-    // 解析 payload
-    std::string payloadStr = base64UrlDecode(payloadB64);
-    return nlohmann::json::parse(payloadStr);
+    // 创建 HMAC hash 对象
+    status = BCryptCreateHash(hAlg, &hHash, nullptr, 0,
+                              reinterpret_cast<PUCHAR>(const_cast<char*>(key.data())),
+                              static_cast<ULONG>(key.size()), 0);
+    if (!BCRYPT_SUCCESS(status)) {
+        BCryptCloseAlgorithmProvider(hAlg, 0);
+        throw std::runtime_error("BCryptCreateHash failed: " + std::to_string(status));
+    }
+
+    // 喂入数据
+    status = BCryptHashData(hHash,
+                            reinterpret_cast<PUCHAR>(const_cast<char*>(data.data())),
+                            static_cast<ULONG>(data.size()), 0);
+    if (!BCRYPT_SUCCESS(status)) {
+        BCryptDestroyHash(hHash);
+        BCryptCloseAlgorithmProvider(hAlg, 0);
+        throw std::runtime_error("BCryptHashData failed: " + std::to_string(status));
+    }
+
+    // 获取哈希长度
+    DWORD hashSize = 0;
+    ULONG cbResult = 0;
+    status = BCryptGetProperty(hAlg, BCRYPT_HASH_LENGTH,
+                               reinterpret_cast<PUCHAR>(&hashSize), sizeof(hashSize),
+                               &cbResult, 0);
+    if (!BCRYPT_SUCCESS(status)) {
+        BCryptDestroyHash(hHash);
+        BCryptCloseAlgorithmProvider(hAlg, 0);
+        throw std::runtime_error("BCryptGetProperty failed: " + std::to_string(status));
+    }
+
+    // 完成哈希
+    std::vector<unsigned char> hash(hashSize);
+    status = BCryptFinishHash(hHash, hash.data(), hashSize, 0);
+
+    BCryptDestroyHash(hHash);
+    BCryptCloseAlgorithmProvider(hAlg, 0);
+
+    if (!BCRYPT_SUCCESS(status)) {
+        throw std::runtime_error("BCryptFinishHash failed: " + std::to_string(status));
+    }
+
+    return std::string(reinterpret_cast<char*>(hash.data()), hash.size());
+}
+
+// ---- JWT 创建与验证 ----
+
+std::string Jwt::create(const nlohmann::json& payload, const std::string& secret)
+{
+    using namespace nlohmann;
+
+    // JWT Header
+    json header = {
+        {"alg", "HS256"},
+        {"typ", "JWT"}
+    };
+
+    // 构建 payload（添加时间戳）
+    auto now = std::chrono::system_clock::now();
+    auto nowSeconds = std::chrono::duration_cast<std::chrono::seconds>(
+                          now.time_since_epoch()).count();
+    auto expSeconds = nowSeconds + 86400; // 24 小时有效
+
+    json fullPayload = payload;
+    fullPayload["iat"] = nowSeconds;
+    fullPayload["exp"] = expSeconds;
+
+    // 编码三段
+    std::string headerB64 = base64UrlEncode(header.dump());
+    std::string payloadB64 = base64UrlEncode(fullPayload.dump());
+    std::string signingInput = headerB64 + "." + payloadB64;
+
+    std::string signature = base64UrlEncode(hmacSha256(secret, signingInput));
+
+    return signingInput + "." + signature;
+}
+
+nlohmann::json Jwt::verify(const std::string& token, const std::string& secret)
+{
+    using namespace nlohmann;
+
+    // 拆分 token 为三段
+    size_t firstDot = token.find('.');
+    size_t secondDot = token.rfind('.');
+
+    if (firstDot == std::string::npos || secondDot == std::string::npos ||
+        firstDot == secondDot) {
+        throw std::runtime_error("Invalid token format");
+    }
+
+    std::string headerB64 = token.substr(0, firstDot);
+    std::string payloadB64 = token.substr(firstDot + 1, secondDot - firstDot - 1);
+    std::string signatureB64 = token.substr(secondDot + 1);
+
+    // 验证签名
+    std::string signingInput = headerB64 + "." + payloadB64;
+    std::string expectedSig = base64UrlEncode(hmacSha256(secret, signingInput));
+
+    if (signatureB64 != expectedSig) {
+        throw std::runtime_error("Invalid token signature");
+    }
+
+    // 解码 payload
+    std::string payloadJson = base64UrlDecode(payloadB64);
+    json claims = json::parse(payloadJson);
+
+    // 检查过期
+    if (claims.contains("exp")) {
+        auto now = std::chrono::system_clock::now();
+        auto nowSeconds = std::chrono::duration_cast<std::chrono::seconds>(
+                              now.time_since_epoch()).count();
+        if (claims["exp"].get<int64_t>() < nowSeconds) {
+            throw std::runtime_error("Token expired");
+        }
+    }
+
+    return claims;
 }
 
 } // namespace mis::utils

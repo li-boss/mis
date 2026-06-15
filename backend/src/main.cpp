@@ -1,3 +1,14 @@
+// =============================================================================
+// WMS Inventory — 入库管理后端服务
+//
+// 双模式：
+//   Oracle 模式（默认）：连接 Oracle 23ai Free
+//   独立模式（降级）：Oracle 不可用时自动切换内存存储
+//
+// 启动：./mis_backend.exe
+// 监听：http://0.0.0.0:8080
+// =============================================================================
+
 #include "controllers/AuthController.hpp"
 #include "controllers/InventoryController.hpp"
 #include "controllers/SkuController.hpp"
@@ -10,7 +21,6 @@
 #endif
 
 #include <httplib.h>
-
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -30,7 +40,7 @@ std::string envOrDefault(const char* name, const char* fallback)
 void applyCors(httplib::Response& res)
 {
     res.set_header("Access-Control-Allow-Origin", "*");
-    res.set_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.set_header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
     res.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization");
 }
 
@@ -38,18 +48,45 @@ void applyCors(httplib::Response& res)
 
 int main()
 {
+    // 强制 OCI 使用 UTF-8 编码（在创建任何连接之前设置）
+#ifdef _WIN32
+    _putenv("NLS_LANG=AMERICAN_AMERICA.AL32UTF8");
+#endif
+
+    // ---- Oracle 初始化 ----
 #ifdef MIS_HAS_ORACLE
-    const auto dbUrl = envOrDefault("MIS_DB_URL", "localhost:1521/XEPDB1");
-    const auto dbUser = envOrDefault("MIS_DB_USER", "mis");
-    const auto dbPassword = envOrDefault("MIS_DB_PASSWORD", "mis_password");
-    mis::dao::oracle().initialize(dbUrl, dbUser, dbPassword);
+    const auto dbUrl = envOrDefault("MIS_DB_URL", "localhost:1522/FREEPDB1");
+    const auto dbUser = envOrDefault("MIS_DB_USER", "wms");
+    const auto dbPassword = envOrDefault("MIS_DB_PASSWORD", "123123");
+
+    bool oracleAvailable = false;
+    try {
+        mis::dao::oracle().initialize(dbUrl, dbUser, dbPassword);
+
+        // 测试连接
+        mis::dao::oracle().acquireForCurrentThread();
+        auto testRow = mis::dao::oracle().query("SELECT 1 AS OK FROM DUAL");
+        mis::dao::oracle().releaseForCurrentThread();
+
+        oracleAvailable = !testRow.empty();
+        std::cout << "[WMS] Oracle 连接成功 (" << dbUrl << ")\n";
+    } catch (const std::exception& ex) {
+        std::cerr << "[WMS] Oracle 不可用: " << ex.what() << "\n";
+        std::cerr << "[WMS] 降级为内存存储模式\n";
+    }
+#else
+    std::cout << "[WMS] 未编译 Oracle 支持，使用内存存储模式\n";
 #endif
 
     const auto port = std::stoi(envOrDefault("MIS_HTTP_PORT", "8080"));
 
+    // ---- HTTP 服务 ----
     httplib::Server server;
+
     server.set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {
         applyCors(res);
+
+        // CORS 预检放行
         if (req.method == "OPTIONS") {
             res.status = 204;
             return httplib::Server::HandlerResponse::Handled;

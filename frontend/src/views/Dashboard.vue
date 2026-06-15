@@ -2,7 +2,7 @@
 import { onMounted, reactive, ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { ArrowRight } from 'lucide-vue-next';
-import { getDashboardOverview, getStockTrend } from '../api/dashboard';
+import { getDashboardOverview } from '../api/dashboard';
 
 const router = useRouter();
 const loading = ref(false);
@@ -15,52 +15,71 @@ const overview = reactive({
 });
 const trend = ref([]);
 
-const maxInbound = computed(() => {
-  if (!trend.value || trend.value.length === 0) return 1;
-  const max = Math.max(...trend.value.map(item => item.inbound));
-  return max > 0 ? max : 1;
-});
-
-const chartPoints = computed(() => {
-  if (!trend.value || trend.value.length === 0) return '';
-  const max = maxInbound.value;
-  return trend.value.map((item, idx) => {
-    const x = 24 + idx * 98.66;
-    const y = 190 - (item.inbound / max) * 160;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(' ');
-});
-
-const getCircleX = (idx) => 24 + idx * 98.66;
-const getCircleY = (item) => {
-  const max = maxInbound.value;
-  return 190 - (item.inbound / max) * 160;
-};
-
-const getBarHeight = (inbound) => {
-  const max = maxInbound.value;
-  const maxHeight = 160;
-  if (max === 1 && inbound === 0) return '10px';
-  const ratio = inbound / max;
-  return `${Math.max(10, ratio * maxHeight)}px`;
-};
+function getCurrentWarehouseCode() {
+  try {
+    const wh = JSON.parse(localStorage.getItem('wms_warehouse'));
+    return wh?.code || 'DEFAULT';
+  } catch { return 'DEFAULT'; }
+}
 
 const loadDashboard = async () => {
   loading.value = true;
-
   try {
-    const [overviewData, trendData] = await Promise.all([
-      getDashboardOverview({ warehouseCode: 'DEFAULT' }),
-      getStockTrend()
-    ]);
-    Object.assign(overview, overviewData);
-    trend.value = trendData.list;
+    const whCode = getCurrentWarehouseCode();
+    const data = await getDashboardOverview({ warehouseCode: whCode });
+    Object.assign(overview, {
+      totalStock: data.totalStock,
+      inboundToday: data.inboundToday,
+      lowStockSku: data.lowStockSku,
+      exceptionCount: data.exceptionCount,
+      pendingInbound: data.pendingInbound,
+    });
+    if (data.trend) trend.value = data.trend;
   } catch {
-    // 鉴权失效时 request 拦截器已处理，此处静默
+    // Silent on error
   } finally {
     loading.value = false;
   }
 };
+
+// ---- Line Chart Calculations ----
+const chartMax = computed(() => {
+  if (!trend.value || !trend.value.length) return 1;
+  return Math.max(...trend.value.map(t => t.quantity || t.inbound || 0), 1);
+});
+
+const trendPoints = computed(() => {
+  if (!trend.value || !trend.value.length) return [];
+  const w = 640, h = 180;
+  const padX = 40;
+  const padTop = 25;
+  const padBottom = 35;
+  const step = (w - padX * 2) / (trend.value.length - 1 || 1);
+  return trend.value.map((t, i) => {
+    const x = padX + i * step;
+    const val = t.quantity || t.inbound || 0;
+    const y = h - padBottom - (val / chartMax.value) * (h - padBottom - padTop);
+    return {
+      x: Math.round(x),
+      y: Math.round(y),
+      date: t.date || t.label || '',
+      value: val
+    };
+  });
+});
+
+const linePoints = computed(() => {
+  return trendPoints.value.map(p => `${p.x},${p.y}`).join(' ');
+});
+
+const areaPath = computed(() => {
+  const pts = trendPoints.value;
+  if (!pts.length) return '';
+  const first = pts[0];
+  const last = pts[pts.length - 1];
+  const linePart = pts.map(p => `L ${p.x} ${p.y}`).join(' ');
+  return `M ${first.x} 145 ${linePart} L ${last.x} 145 Z`;
+});
 
 onMounted(loadDashboard);
 </script>
@@ -73,7 +92,6 @@ onMounted(loadDashboard);
         <p class="page-subtitle">查看库存状态与出入库趋势，关注低库存与异常提醒。</p>
       </div>
       <div class="head-actions">
-        <button class="btn btn-ghost" type="button">筛选仓库</button>
         <button class="btn btn-primary" type="button" :disabled="loading" @click="loadDashboard">
           刷新
         </button>
@@ -124,37 +142,53 @@ onMounted(loadDashboard);
             <span></span>
             <span></span>
           </div>
-          <svg viewBox="0 0 640 220" role="img" aria-hidden="true">
+          
+          <svg v-if="trend.length" viewBox="0 0 640 180" class="svg-chart" role="img" aria-hidden="true">
+            <!-- 定义渐变 -->
+            <defs>
+              <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#2579ed" stop-opacity="0.25" />
+                <stop offset="100%" stop-color="#2579ed" stop-opacity="0.00" />
+              </linearGradient>
+            </defs>
+
+            <!-- 网格背景线 -->
+            <g stroke="#e2e8f0" stroke-width="1" stroke-dasharray="4,4">
+              <line x1="40" y1="25" x2="600" y2="25" />
+              <line x1="40" y1="65" x2="600" y2="65" />
+              <line x1="40" y1="105" x2="600" y2="105" />
+              <line x1="40" y1="145" x2="600" y2="145" />
+            </g>
+
+            <!-- 渐变面积图 -->
+            <path :d="areaPath" fill="url(#chartGrad)" />
+
+            <!-- 折线 -->
             <polyline
-              v-if="chartPoints"
-              :points="chartPoints"
+              :points="linePoints"
               fill="none"
               stroke="#2579ed"
-              stroke-width="5"
+              stroke-width="3.5"
               stroke-linecap="round"
               stroke-linejoin="round"
             />
-            <g fill="#2579ed">
-              <circle
-                v-for="(item, idx) in trend"
-                :key="'dot-' + idx"
-                :cx="getCircleX(idx)"
-                :cy="getCircleY(item)"
-                r="6"
-              />
+
+            <!-- 数据点和标签 -->
+            <g v-for="(p, i) in trendPoints" :key="i">
+              <!-- 数值 -->
+              <text :x="p.x" :y="p.y - 12" text-anchor="middle" class="chart-val-text">
+                {{ p.value }}
+              </text>
+              <!-- 日期 -->
+              <text :x="p.x" y="166" text-anchor="middle" class="chart-axis-text">
+                {{ p.date }}
+              </text>
+              <!-- 交互点 -->
+              <circle :cx="p.x" :cy="p.y" r="5.5" class="chart-dot" />
+              <circle :cx="p.x" :cy="p.y" r="12" class="chart-dot-hover" />
             </g>
           </svg>
-          <div class="bar-row">
-            <span
-              v-for="item in trend"
-              :key="item.label"
-              class="trend-bar"
-              :style="{ height: getBarHeight(item.inbound) }"
-            ></span>
-          </div>
-          <div class="axis-labels">
-            <span v-for="item in trend" :key="'lbl-' + item.label">{{ item.label }}</span>
-          </div>
+          <div v-else class="chart-empty">暂无趋势数据</div>
         </div>
       </div>
     </section>
@@ -210,6 +244,7 @@ onMounted(loadDashboard);
   inset: 8px 0 44px;
   display: grid;
   grid-template-rows: repeat(4, 1fr);
+  pointer-events: none;
 }
 
 .chart-lines span {
@@ -224,30 +259,46 @@ onMounted(loadDashboard);
   height: calc(100% - 30px);
 }
 
-.bar-row {
-  position: absolute;
-  inset: 10px 22px 44px;
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  z-index: 1;
+.chart-dot {
+  fill: #ffffff;
+  stroke: #2579ed;
+  stroke-width: 3;
+  transition: all 0.3s ease;
 }
 
-.trend-bar {
-  width: 32px;
-  border-radius: 7px;
-  background: rgba(24, 164, 131, 0.48);
+.chart-dot-hover {
+  fill: #2579ed;
+  opacity: 0;
+  transition: all 0.3s ease;
+  cursor: pointer;
 }
 
-.axis-labels {
+.chart-dot-hover:hover {
+  opacity: 0.18;
+  r: 15;
+}
+
+.chart-val-text {
+  font-size: 12px;
+  font-weight: 700;
+  fill: #1e293b;
+  opacity: 0.9;
+  transition: opacity 0.3s ease;
+}
+
+.chart-axis-text {
+  font-size: 12px;
+  fill: #64748b;
+  font-weight: 500;
+}
+
+.chart-empty {
   position: absolute;
-  left: 20px;
-  right: 20px;
-  bottom: 0;
+  inset: 0;
   display: flex;
-  justify-content: space-between;
+  align-items: center;
+  justify-content: center;
   color: var(--color-muted);
-  font-size: 13px;
 }
 
 .requirement-panel {
