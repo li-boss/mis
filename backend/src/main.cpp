@@ -13,6 +13,7 @@
 #include "controllers/InventoryController.hpp"
 #include "controllers/SkuController.hpp"
 #include "controllers/SupplierController.hpp"
+#include "utils/Jwt.h"
 
 #ifdef MIS_HAS_ORACLE
 #include "dao/OracleConnector.hpp"
@@ -64,10 +65,51 @@ int main()
 
     server.set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {
         applyCors(res);
+
+        // CORS 预检放行
         if (req.method == "OPTIONS") {
             res.status = 204;
             return httplib::Server::HandlerResponse::Handled;
         }
+
+        // 公开路径：无需鉴权
+        if (req.path == "/api/auth/login" || req.path == "/api/auth/register" ||
+            req.path == "/api/auth/logout") {
+            return httplib::Server::HandlerResponse::Unhandled;
+        }
+
+        // 仅对 /api/ 路径进行鉴权
+        if (req.path.rfind("/api/", 0) != 0) {
+            return httplib::Server::HandlerResponse::Unhandled;
+        }
+
+        // 提取 Bearer token
+        std::string auth = req.has_header("Authorization")
+                            ? req.get_header_value("Authorization") : "";
+        if (auth.rfind("Bearer ", 0) != 0) {
+            res.status = 401;
+            res.set_content(R"({"code":-1,"message":"未登录：缺少 Authorization header"})",
+                            "application/json");
+            return httplib::Server::HandlerResponse::Handled;
+        }
+
+        std::string token = auth.substr(7);
+
+        // 验证 JWT
+        try {
+            auto claims = mis::utils::Jwt::verify(token);
+            // 将用户信息存入 res.user_data，后续 handler 可按需读取
+            res.user_data.set("userId", claims["userId"].get<int>());
+            res.user_data.set("username", claims["username"].get<std::string>());
+            res.user_data.set("role", claims["role"].get<std::string>());
+        } catch (const std::exception& ex) {
+            res.status = 401;
+            std::string body = R"({"code":-1,"message":"token 无效或已过期: )"
+                             + std::string(ex.what()) + R"("})";
+            res.set_content(body, "application/json");
+            return httplib::Server::HandlerResponse::Handled;
+        }
+
         return httplib::Server::HandlerResponse::Unhandled;
     });
 

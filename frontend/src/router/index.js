@@ -21,13 +21,13 @@ const routes = [
     path: '/dashboard',
     name: 'Dashboard',
     component: () => import('../views/Dashboard.vue'),
-    meta: { title: '库存看板' }
+    meta: { title: '库存看板', requiresAuth: true, roles: ['keeper', 'admin'] }
   },
   {
     path: '/inbound',
     name: 'Inbound',
     component: () => import('../views/Inbound.vue'),
-    meta: { title: '入库登记' }
+    meta: { title: '入库登记', requiresAuth: true, roles: ['keeper', 'purchaser', 'admin'] }
   },
   {
     path: '/sku',
@@ -36,7 +36,7 @@ const routes = [
     meta: {
       title: 'SKU/商品管理',
       requiresAuth: true,
-      roles: ['admin', 'frontend']
+      roles: ['data_manager', 'admin']
     }
   },
   {
@@ -46,14 +46,14 @@ const routes = [
     meta: {
       title: '供应商管理',
       requiresAuth: true,
-      roles: ['admin', 'frontend']
+      roles: ['purchaser', 'admin']
     }
   },
   {
     path: '/settings',
     name: 'Settings',
     component: () => import('../views/Settings.vue'),
-    meta: { title: '系统设置', requiresAuth: true }
+    meta: { title: '系统设置', requiresAuth: true, roles: ['admin'] }
   }
 ];
 

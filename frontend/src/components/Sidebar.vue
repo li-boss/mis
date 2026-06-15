@@ -6,14 +6,22 @@ import {
   Settings,
   Truck
 } from 'lucide-vue-next';
+import { computed } from 'vue';
+import { useUserStore } from '../store/user';
+
+const userStore = useUserStore();
 
 const navItems = [
-  { title: '库存看板', path: '/dashboard', icon: LayoutDashboard },
-  { title: '入库登记', path: '/inbound', icon: PackagePlus },
-  { title: 'SKU 管理', path: '/sku', icon: Boxes },
-  { title: '供应商管理', path: '/supplier', icon: Truck },
-  { title: '系统设置', path: '/settings', icon: Settings }
+  { title: '库存看板', path: '/dashboard', icon: LayoutDashboard, roles: ['keeper', 'admin'] },
+  { title: '入库登记', path: '/inbound', icon: PackagePlus, roles: ['keeper', 'purchaser', 'admin'] },
+  { title: 'SKU 管理', path: '/sku', icon: Boxes, roles: ['data_manager', 'admin'] },
+  { title: '供应商管理', path: '/supplier', icon: Truck, roles: ['purchaser', 'admin'] },
+  { title: '系统设置', path: '/settings', icon: Settings, roles: ['admin'] }
 ];
+
+const visibleItems = computed(() =>
+  navItems.filter((item) => item.roles.includes(userStore.role))
+);
 </script>
 
 <template>
@@ -26,7 +34,7 @@ const navItems = [
 
       <nav class="nav-list" aria-label="主导航">
         <RouterLink
-          v-for="item in navItems"
+          v-for="item in visibleItems"
           :key="item.path"
           :to="item.path"
           class="nav-item"
@@ -41,9 +49,9 @@ const navItems = [
     </div>
 
     <div class="sidebar-profile">
-      <span>负责人</span>
-      <strong>白沁禾</strong>
-      <small>前端核心 · 用户/SKU/供应商</small>
+      <span>当前用户</span>
+      <strong>{{ userStore.realName || '未登录' }}</strong>
+      <small>{{ userStore.roleName || '访客' }}</small>
     </div>
   </aside>
 </template>

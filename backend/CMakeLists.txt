@@ -44,6 +44,7 @@ endif()
 add_executable(mis_backend
     src/main.cpp
     src/services/InventoryService.cpp
+    src/utils/Jwt.cpp
     src/controllers/AuthController.cpp
     src/controllers/InventoryController.cpp
     src/controllers/SkuController.cpp
@@ -70,6 +71,7 @@ target_link_libraries(mis_backend
     PRIVATE
         Threads::Threads
         ws2_32
+        bcrypt
 )
 
 # 静态链接 gcc/libstdc++/winpthread（避免 DLL 依赖）

@@ -1,7 +1,60 @@
 <script setup>
-import { isMockEnabled } from '../api/request';
+import { onMounted, ref } from 'vue';
+import { ElMessage, ElMessageBox } from 'element-plus';
+import { listUsers, updateUserRole } from '../api/user';
+import { useUserStore } from '../store/user';
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
+const userStore = useUserStore();
+const users = ref([]);
+const loading = ref(false);
+
+const roleOptions = [
+  { value: 'admin', label: '系统管理员' },
+  { value: 'keeper', label: '库管员' },
+  { value: 'purchaser', label: '采购员' },
+  { value: 'data_manager', label: '数据管理员' }
+];
+
+const roleLabel = (role) => {
+  const opt = roleOptions.find((r) => r.value === role);
+  return opt ? opt.label : role;
+};
+
+const isSelf = (userId) => userId === userStore.profile?.userId;
+
+const loadUsers = async () => {
+  loading.value = true;
+  try {
+    const result = await listUsers();
+    users.value = result.list || [];
+  } catch {
+    // 鉴权失效时拦截器已处理
+  } finally {
+    loading.value = false;
+  }
+};
+
+const handleRoleChange = async (user) => {
+  if (isSelf(user.userId) && user.role !== 'admin') {
+    ElMessage.warning('不可降级自己的管理员角色');
+    return;
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `确认将「${user.realName || user.username}」的角色改为「${roleLabel(user.role)}」？`,
+      '修改角色',
+      { confirmButtonText: '确认', cancelButtonText: '取消', type: 'warning' }
+    );
+
+    await updateUserRole(user.userId, user.role);
+    ElMessage.success('角色已更新');
+  } catch {
+    // 取消操作
+  }
+};
+
+onMounted(loadUsers);
 </script>
 
 <template>
@@ -9,84 +62,49 @@ const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
     <div class="page-head">
       <div>
         <h1 class="page-title">系统设置</h1>
-        <p class="page-subtitle">查看前端运行配置与接口联调状态。</p>
+        <p class="page-subtitle">用户管理与角色分配。</p>
       </div>
     </div>
 
-    <div class="settings-grid">
-      <section class="panel">
-        <div class="panel-body">
-          <h2 class="panel-title">接口配置</h2>
-          <dl class="config-list">
-            <div>
-              <dt>Base URL</dt>
-              <dd>{{ apiBaseUrl }}</dd>
-            </div>
-            <div>
-              <dt>Mock</dt>
-              <dd>{{ isMockEnabled ? '启用' : '关闭' }}</dd>
-            </div>
-          </dl>
-        </div>
-      </section>
+    <el-card shadow="never">
+      <template #header>
+        <span class="card-title">用户列表</span>
+      </template>
 
-      <section class="panel">
-        <div class="panel-body">
-          <h2 class="panel-title">模块负责人</h2>
-          <dl class="config-list">
-            <div>
-              <dt>姓名</dt>
-              <dd>白沁禾</dd>
-            </div>
-            <div>
-              <dt>范围</dt>
-              <dd>核心配置、用户、SKU、供应商、接口文档</dd>
-            </div>
-          </dl>
-        </div>
-      </section>
-    </div>
+      <el-table :data="users" v-loading="loading" stripe style="width: 100%">
+        <el-table-column prop="userId" label="ID" width="70" />
+        <el-table-column prop="username" label="用户名" min-width="120" />
+        <el-table-column prop="realName" label="姓名" min-width="100" />
+        <el-table-column label="角色" min-width="220">
+          <template #default="{ row }">
+            <el-select
+              :model-value="row.role"
+              @change="(val) => { row.role = val; handleRoleChange(row); }"
+              :disabled="isSelf(row.userId)"
+              style="width: 180px"
+            >
+              <el-option
+                v-for="opt in roleOptions"
+                :key="opt.value"
+                :label="opt.label"
+                :value="opt.value"
+              />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="备注" min-width="140">
+          <template #default="{ row }">
+            <el-tag v-if="isSelf(row.userId)" type="info" size="small">当前用户</el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
   </section>
 </template>
 
 <style scoped>
-.settings-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 24px;
-}
-
-.config-list {
-  display: grid;
-  gap: 16px;
-  margin: 20px 0 0;
-}
-
-.config-list div {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  border-bottom: 1px solid var(--color-line);
-  padding-bottom: 14px;
-}
-
-.config-list dt {
-  color: var(--color-muted);
-  font-weight: 800;
-}
-
-.config-list dd {
-  margin: 0;
-  color: var(--color-text);
-  font-weight: 800;
-  overflow-wrap: anywhere;
-  text-align: right;
-}
-
-@media (max-width: 900px) {
-  .settings-grid {
-    grid-template-columns: 1fr;
-  }
+.card-title {
+  font-size: 16px;
+  font-weight: 600;
 }
 </style>
