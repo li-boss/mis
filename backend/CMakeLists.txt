@@ -47,8 +47,9 @@ endif()
 
 add_executable(mis_backend
     src/main.cpp
-    src/services/InventoryService.cpp
     src/utils/Jwt.cpp
+    src/utils/Sha256.cpp
+    src/services/InventoryService.cpp
     src/controllers/AuthController.cpp
     src/controllers/InventoryController.cpp
     src/controllers/SkuController.cpp

@@ -1,3 +1,4 @@
+#include "controllers/AuthController.hpp"
 #include "controllers/InventoryController.hpp"
 #include "controllers/SkuController.hpp"
 #include "controllers/SupplierController.hpp"
@@ -6,6 +7,7 @@
 
 #ifdef MIS_HAS_ORACLE
 #include "dao/OracleConnector.hpp"
+#endif
 
 #include <httplib.h>
 
@@ -36,12 +38,14 @@ void applyCors(httplib::Response& res)
 
 int main()
 {
+#ifdef MIS_HAS_ORACLE
     const auto dbUrl = envOrDefault("MIS_DB_URL", "localhost:1521/XEPDB1");
     const auto dbUser = envOrDefault("MIS_DB_USER", "mis");
     const auto dbPassword = envOrDefault("MIS_DB_PASSWORD", "mis_password");
-    const auto port = std::stoi(envOrDefault("MIS_HTTP_PORT", "8080"));
-
     mis::dao::oracle().initialize(dbUrl, dbUser, dbPassword);
+#endif
+
+    const auto port = std::stoi(envOrDefault("MIS_HTTP_PORT", "8080"));
 
     httplib::Server server;
     server.set_pre_routing_handler([](const httplib::Request& req, httplib::Response& res) {

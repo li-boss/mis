@@ -512,6 +512,7 @@ static InventoryService::DashboardStats memGetDashboard()
 // 统一接口（自动选择 Oracle / 内存）
 // =========================================================================
 
+#ifdef MIS_HAS_ORACLE
 #define TRY_ORACLE(call, fallback) \
     do { \
         if (oracleAvailable()) { \
@@ -521,6 +522,12 @@ static InventoryService::DashboardStats memGetDashboard()
         } \
         return mem##call; \
     } while(0)
+#else
+#define TRY_ORACLE(call, fallback) \
+    do { \
+        return mem##call; \
+    } while(0)
+#endif
 
 models::InboundOrder InventoryService::createInbound(const models::InboundRequest& req) {
     validateInbound(req);
