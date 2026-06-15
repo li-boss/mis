@@ -537,10 +537,10 @@ static std::vector<InventoryService::TrendPoint> memGetRecentTrend(int days)
                 std::cerr << "[WMS] Oracle 操作失败: " << ex.what() << "，降级内存\n"; \
             } \
         } \
-        return mem##call; \
+        return mem##fallback; \
     } while(0)
 #else
-#define TRY_ORACLE(call, fallback) return mem##call;
+#define TRY_ORACLE(call, fallback) return mem##fallback;
 #endif
 
 models::InboundOrder InventoryService::createInbound(const models::InboundRequest& req) {
