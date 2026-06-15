@@ -12,6 +12,9 @@
 #include <algorithm>
 #include <iostream>
 #include <mutex>
+#include <unordered_map>
+#include <string>
+#include <vector>
 
 namespace mis::services {
 

@@ -1,3 +1,4 @@
+#include <windows.h>
 #include "utils/Jwt.h"
 #include <bcrypt.h>
 
