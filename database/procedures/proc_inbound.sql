@@ -133,7 +133,6 @@ CREATE OR REPLACE PROCEDURE proc_inbound_receive (
     v_all_received      NUMBER;
     v_total_lines       NUMBER;
     v_full_lines        NUMBER;
-    PRAGMA AUTONOMOUS_TRANSACTION;
 BEGIN
     -- ===== ① 校验明细行存在 + 入库单状态 =====
     BEGIN
@@ -275,7 +274,6 @@ CREATE OR REPLACE PROCEDURE proc_inbound_cancel (
 ) IS
     v_status          VARCHAR2(20);
     v_has_received    NUMBER := 0;
-    PRAGMA AUTONOMOUS_TRANSACTION;
 BEGIN
     -- 查询入库单状态
     SELECT status INTO v_status
@@ -350,7 +348,6 @@ CREATE OR REPLACE PROCEDURE proc_inbound_submit (
     o_result        OUT NUMBER,
     o_message       OUT VARCHAR2
 ) IS
-    PRAGMA AUTONOMOUS_TRANSACTION;
 BEGIN
     UPDATE inbound_orders
     SET status = 'SUBMITTED'
