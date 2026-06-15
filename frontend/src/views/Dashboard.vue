@@ -1,36 +1,68 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue';
+import { onMounted, reactive, ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { ArrowRight } from 'lucide-vue-next';
-import { getDashboardOverview, getStockTrend } from '../api/dashboard';
+import { getDashboardOverview } from '../api/dashboard';
 
 const router = useRouter();
 const loading = ref(false);
 const overview = reactive({
-  totalStock: 0,
-  inboundToday: 0,
-  lowStockSku: 0,
-  exceptionCount: 0,
-  pendingInbound: 0
+  totalStock: 0, inboundToday: 0, lowStockSku: 0, exceptionCount: 0, pendingInbound: 0
 });
 const trend = ref([]);
 
+function getCurrentWarehouseCode() {
+  try {
+    const wh = JSON.parse(localStorage.getItem('wms_warehouse'));
+    return wh?.code || 'DEFAULT';
+  } catch { return 'DEFAULT'; }
+}
+
 const loadDashboard = async () => {
   loading.value = true;
-
   try {
-    const [overviewData, trendData] = await Promise.all([
-      getDashboardOverview({ warehouseCode: 'DEFAULT' }),
-      getStockTrend()
-    ]);
-    Object.assign(overview, overviewData);
-    trend.value = trendData.list;
-  } catch {
-    // 鉴权失效时 request 拦截器已处理，此处静默
-  } finally {
-    loading.value = false;
-  }
+    const whCode = getCurrentWarehouseCode();
+    const data = await getDashboardOverview({ warehouseCode: whCode });
+    Object.assign(overview, {
+      totalStock: data.totalStock,
+      inboundToday: data.inboundToday,
+      lowStockSku: data.lowStockSku,
+      exceptionCount: data.exceptionCount,
+      pendingInbound: data.pendingInbound,
+    });
+    // trend 在同一个响应里
+    if (data.trend) trend.value = data.trend;
+  } catch { /* ignore */ }
+  finally { loading.value = false; }
 };
+
+// ---- 图表计算 ----
+const chartMax = computed(() => {
+  if (!trend.value.length) return 1;
+  return Math.max(...trend.value.map(t => t.quantity || 0), 1);
+});
+
+const chartPoints = computed(() => {
+  if (!trend.value.length) return '';
+  const w = 640, h = 180, pad = 20;
+  const step = (w - pad * 2) / (trend.value.length - 1 || 1);
+  return trend.value.map((t, i) => {
+    const x = pad + i * step;
+    const y = h - (t.quantity || 0) / chartMax.value * (h - 10);
+    return `${Math.round(x)},${Math.round(y)}`;
+  }).join(' ');
+});
+
+const barItems = computed(() => {
+  if (!trend.value.length) return [];
+  const maxH = 140;
+  return trend.value.map(t => ({
+    date: t.date || t.label || '',
+    value: t.quantity || 0,
+    pct: Math.round((t.quantity || 0) / chartMax.value * 100),
+    height: Math.max(4, Math.round((t.quantity || 0) / chartMax.value * maxH)),
+  }));
+});
 
 onMounted(loadDashboard);
 </script>
@@ -43,7 +75,6 @@ onMounted(loadDashboard);
         <p class="page-subtitle">查看库存状态与出入库趋势，关注低库存与异常提醒。</p>
       </div>
       <div class="head-actions">
-        <button class="btn btn-ghost" type="button">筛选仓库</button>
         <button class="btn btn-primary" type="button" :disabled="loading" @click="loadDashboard">
           刷新
         </button>
@@ -89,44 +120,32 @@ onMounted(loadDashboard);
 
         <div class="trend-chart" aria-label="近期出入库趋势图">
           <div class="chart-lines">
-            <span></span>
-            <span></span>
-            <span></span>
-            <span></span>
+            <span></span><span></span><span></span><span></span>
           </div>
-          <svg viewBox="0 0 640 220" role="img" aria-hidden="true">
+          <!-- 折线 -->
+          <svg v-if="trend.length" viewBox="0 0 640 180" role="img" aria-hidden="true">
             <polyline
-              points="24,178 116,146 208,164 300,96 392,112 484,54 616,22"
-              fill="none"
-              stroke="#2579ed"
-              stroke-width="5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
+              :points="chartPoints"
+              fill="none" stroke="#2579ed" stroke-width="4"
+              stroke-linecap="round" stroke-linejoin="round"
             />
-            <g fill="#2579ed">
-              <circle cx="24" cy="178" r="6" />
-              <circle cx="116" cy="146" r="6" />
-              <circle cx="208" cy="164" r="6" />
-              <circle cx="300" cy="96" r="6" />
-              <circle cx="392" cy="112" r="6" />
-              <circle cx="484" cy="54" r="6" />
-              <circle cx="616" cy="22" r="6" />
-            </g>
           </svg>
-          <div class="bar-row">
-            <span
-              v-for="item in trend"
-              :key="item.label"
-              class="trend-bar"
-              :style="{ height: `${Math.max(44, item.inbound / 1.15)}px` }"
-            ></span>
+          <!-- 柱状 + 数值 -->
+          <div class="bar-row" v-if="trend.length">
+            <div
+              v-for="(b, i) in barItems"
+              :key="i"
+              class="bar-col"
+            >
+              <span class="bar-val">{{ b.value }}</span>
+              <span
+                class="trend-bar"
+                :style="{ height: b.height + 'px' }"
+              ></span>
+              <span class="bar-date">{{ b.date }}</span>
+            </div>
           </div>
-          <div class="axis-labels">
-            <span>周一</span>
-            <span>周三</span>
-            <span>周五</span>
-            <span>周日</span>
-          </div>
+          <div v-else class="chart-empty">暂无趋势数据</div>
         </div>
       </div>
     </section>
@@ -198,28 +217,47 @@ onMounted(loadDashboard);
 
 .bar-row {
   position: absolute;
-  inset: 10px 22px 44px;
+  inset: 10px 18px 44px;
   display: flex;
   align-items: flex-end;
-  justify-content: space-between;
+  justify-content: space-around;
   z-index: 1;
 }
 
-.trend-bar {
-  width: 32px;
-  border-radius: 7px;
-  background: rgba(24, 164, 131, 0.48);
+.bar-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 
-.axis-labels {
-  position: absolute;
-  left: 20px;
-  right: 20px;
-  bottom: 0;
-  display: flex;
-  justify-content: space-between;
+.bar-val {
+  font-size: 11px;
+  font-weight: 700;
+  color: #2579ed;
+}
+
+.trend-bar {
+  width: 28px;
+  border-radius: 5px;
+  background: rgba(24, 164, 131, 0.48);
+  min-height: 4px;
+  transition: height 0.3s;
+}
+
+.bar-date {
+  font-size: 11px;
   color: var(--color-muted);
-  font-size: 13px;
+  white-space: nowrap;
+}
+
+.chart-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted);
 }
 
 .requirement-panel {

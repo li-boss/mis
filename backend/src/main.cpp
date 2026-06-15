@@ -21,6 +21,7 @@
 
 #include <httplib.h>
 
+#include <cstdlib>
 #include <iostream>
 #include <string>
 
@@ -38,6 +39,11 @@ void applyCors(httplib::Response& res)
 int main()
 {
     const int port = 8080;
+
+    // 强制 OCI 使用 UTF-8 编码（在创建任何连接之前设置）
+#ifdef _WIN32
+    _putenv("NLS_LANG=AMERICAN_AMERICA.AL32UTF8");
+#endif
 
     // ---- Oracle 初始化 ----
 #ifdef MIS_HAS_ORACLE

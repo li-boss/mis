@@ -18,6 +18,15 @@ public:
         int offset = 0);
     void receiveLine(int lineId, double quantity, int operatorId);
 
+    // SKU 收货（快速入库）：根据 SKU 码/productId 自动匹配待收货明细行
+    struct ReceiveBySkuResult {
+        bool success{false};
+        std::string message;
+        int totalReceived{0};
+        std::vector<int> orderIds;
+    };
+    ReceiveBySkuResult receiveBySku(const std::string& skuCode, int productId, int quantity);
+
     // 看板统计
     struct DashboardStats {
         int totalStock{0};
@@ -26,7 +35,11 @@ public:
         int exceptionCount{0};
         int pendingInbound{0};
     };
-    DashboardStats getDashboard();
+    DashboardStats getDashboard(int warehouseId = 1);
+
+    // 最近 N 天入库趋势：[{date, quantity}, ...]
+    struct TrendPoint { std::string date; int quantity{0}; };
+    std::vector<TrendPoint> getRecentTrend(int days = 7, int warehouseId = 1);
 
 private:
     static void validateInbound(const models::InboundRequest& request);

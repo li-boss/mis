@@ -38,11 +38,19 @@
             class="line-row"
           >
             <span class="line-index">{{ idx + 1 }}</span>
-            <el-input
+            <el-select
               v-model="line.productId"
-              placeholder="商品ID"
+              placeholder="选择商品"
+              filterable
               class="line-input line-product"
-            />
+            >
+              <el-option
+                v-for="p in products"
+                :key="p.id"
+                :label="`${p.skuCode} — ${p.name}`"
+                :value="p.id"
+              />
+            </el-select>
             <el-input-number
               v-model="line.quantity"
               :min="1"
@@ -95,11 +103,13 @@
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue';
+import { reactive, ref, onMounted } from 'vue';
 import { ElMessage } from 'element-plus';
 import { Plus, Delete } from '@element-plus/icons-vue';
 
 import { createInboundOrder } from '../api/inbound';
+import { getSkuList } from '../api/sku';
+import { getSupplierList } from '../api/supplier';
 import { useUserStore } from '../store/user';
 
 const emit = defineEmits(['created']);
@@ -108,13 +118,32 @@ const formRef = ref(null);
 const submitting = ref(false);
 const userStore = useUserStore();
 
-// ---- Mock 供应商列表（联调后从 API 获取） ----
-const suppliers = [
-  { id: 1, name: '华为技术有限公司' },
-  { id: 2, name: '中兴通讯股份有限公司' },
-  { id: 3, name: '小米供应链管理有限公司' },
-  { id: 4, name: '京东物流供应商' },
-];
+// ---- 供应商列表（从 API 获取） ----
+const suppliers = ref([]);
+
+async function loadSuppliers() {
+  try {
+    const res = await getSupplierList({ pageSize: 200 });
+    suppliers.value = (res.list || []).map(s => ({ id: s.id, name: s.name }))
+      .filter(s => s.id <= 4); // 暂时只显示种子供应商（ID 1-4）
+  } catch {
+    // 降级
+  }
+}
+
+// ---- 商品/SKU 列表（从 API 获取） ----
+const products = ref([]);
+
+async function loadProducts() {
+  try {
+    const res = await getSkuList({ pageSize: 200 });
+    products.value = (res.list || []).filter(p => p.status !== 'disabled');
+  } catch {
+    // 降级使用空列表
+  }
+}
+
+onMounted(() => { loadSuppliers(); loadProducts(); });
 
 const emptyLine = () => ({
   productId: '',
@@ -172,6 +201,7 @@ async function handleSubmit() {
     const res = await createInboundOrder({
       supplierId: form.supplierId,
       createdBy: userStore.profile?.userId || 1,
+      remark: form.remark,
       lines: form.lines.map((l) => ({
         productId: Number(l.productId),
         quantity: l.quantity,

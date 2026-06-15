@@ -47,7 +47,7 @@ let mockOrders = [
     createdAt: '2026-06-02T10:00:00',
     receivedAt: null,
     remark: '紧急补货',
-    lines: [makeLine(101, 100, 50), makeLine(102, 200, 0)]
+    lines: [makeLine(1001, 100, 50), makeLine(1002, 200, 0)]
   },
   {
     inboundId: 2,
@@ -58,7 +58,7 @@ let mockOrders = [
     createdAt: '2026-06-03T14:30:00',
     receivedAt: null,
     remark: '',
-    lines: [makeLine(201, 80, 0)]
+    lines: [makeLine(1003, 80, 0)]
   },
   {
     inboundId: 3,
@@ -69,7 +69,7 @@ let mockOrders = [
     createdAt: '2026-06-01T09:00:00',
     receivedAt: '2026-06-02T16:00:00',
     remark: '已完成',
-    lines: [makeLine(301, 50, 50)]
+    lines: [makeLine(1001, 50, 50)]
   },
   {
     inboundId: 4,
@@ -80,7 +80,18 @@ let mockOrders = [
     createdAt: '2026-06-04T11:00:00',
     receivedAt: null,
     remark: '供应商取消',
-    lines: [makeLine(401, 120, 0)]
+    lines: [makeLine(1002, 120, 0)]
+  },
+  {
+    inboundId: 5,
+    supplierId: 1,
+    supplierName: '华为技术有限公司',
+    status: STATUS.SUBMITTED,
+    createdBy: 2,
+    createdAt: '2026-06-10T08:00:00',
+    receivedAt: null,
+    remark: 'SKU收货演示订单',
+    lines: [makeLine(1001, 60, 0), makeLine(1003, 150, 0)]
   }
 ];
 
@@ -236,6 +247,72 @@ export async function cancelInboundOrder(id) {
   return request.post(`/inventory/inbound/${id}/cancel`);
 }
 
+// ---- 7. SKU 收货（快速扫码入库） ----
+export async function receiveBySku(payload) {
+  if (isMockEnabled) {
+    const { skuCode, productId, quantity } = payload;
+
+    // 解析 productId
+    let pid = productId || 0;
+    if (!pid && skuCode) {
+      const num = Number(skuCode);
+      pid = Number.isNaN(num) ? 0 : num;
+    }
+
+    // 查找待收货的明细行（FIFO）
+    let remaining = quantity || 0;
+    let totalReceived = 0;
+    const affectedOrders = [];
+
+    for (const order of mockOrders) {
+      if (remaining <= 0) break;
+      if (order.status !== STATUS.SUBMITTED && order.status !== STATUS.PARTIAL) continue;
+
+      for (const line of order.lines || []) {
+        if (remaining <= 0) break;
+        if (line.productId !== pid) continue;
+        if (line.quantityReceived >= line.quantityOrdered) continue;
+
+        const canReceive = line.quantityOrdered - line.quantityReceived;
+        const toReceive = Math.min(remaining, canReceive);
+        line.quantityReceived += toReceive;
+        totalReceived += toReceive;
+        remaining -= toReceive;
+
+        if (!affectedOrders.includes(order.inboundId)) {
+          affectedOrders.push(order.inboundId);
+        }
+      }
+
+      // 更新订单状态
+      const allReceived = (order.lines || []).every(l => l.quantityReceived >= l.quantityOrdered);
+      order.status = allReceived ? STATUS.RECEIVED : STATUS.PARTIAL;
+      if (allReceived) order.receivedAt = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    }
+
+    if (totalReceived === 0) {
+      return mockWait({
+        code: 0,
+        message: '没有找到该商品对应的待收货入库单（需要先创建并提交采购入库单）',
+        data: { success: false, totalReceived: 0, orderIds: [] }
+      });
+    }
+
+    let msg = `收货成功：共 ${totalReceived} 件`;
+    if (remaining > 0) {
+      msg = `部分收货成功：已收 ${totalReceived}，剩余 ${remaining} 无可收明细`;
+    }
+
+    return mockWait({
+      code: 0,
+      message: msg,
+      data: { success: true, totalReceived, orderIds: affectedOrders }
+    });
+  }
+
+  return request.post('/inventory/inbound/receive-by-sku', payload);
+}
+
 // ---- 兼容旧版 Inbound.vue（后续可移除） ----
 export async function getInboundOrders(params = {}) {
   if (isMockEnabled) {
@@ -267,5 +344,6 @@ export default {
   submitInboundOrder,
   receiveInbound,
   cancelInboundOrder,
+  receiveBySku,
   getInboundOrders
 };

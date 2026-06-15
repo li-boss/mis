@@ -73,6 +73,12 @@ export async function getSkuList(params = {}) {
     return mockWait({ list, total: list.length, page: Number(params.page || 1), pageSize: Number(params.pageSize || 20) });
   }
 
+  // 从 localStorage 取当前仓库
+  try {
+    const wh = JSON.parse(localStorage.getItem('wms_warehouse'));
+    if (wh?.code) params.warehouseCode = wh.code;
+  } catch { /* ignore */ }
+
   const res = await request.get('/skus', { params });
   return res.data || res;
 }

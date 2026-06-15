@@ -32,14 +32,24 @@ static std::string nowISO()
 static bool oracleAvailable()
 {
 #ifdef MIS_HAS_ORACLE
+    static bool checked = false;
+    static bool available = false;
+    if (checked) return available;
+    checked = true;
+
     try {
-        mis::dao::oracle().acquireForCurrentThread();
+        mis::dao::DbSessionGuard db;
         mis::dao::oracle().query("SELECT 1 FROM DUAL");
-        mis::dao::oracle().releaseForCurrentThread();
-        return true;
+        available = true;
+        std::cout << "[WMS] Oracle 检测通过，使用 Oracle 存储\n";
+    } catch (const std::exception& ex) {
+        std::cerr << "[WMS] Oracle 不可用: " << ex.what() << "，降级内存存储\n";
+        available = false;
     } catch (...) {
-        return false;
+        std::cerr << "[WMS] Oracle 不可用: 未知异常，降级内存存储\n";
+        available = false;
     }
+    return available;
 #else
     return false;
 #endif
@@ -313,25 +323,155 @@ static std::vector<models::InboundOrder> oracleListInbound(
     return orders;
 }
 
-static InventoryService::DashboardStats oracleGetDashboard()
+static InventoryService::DashboardStats oracleGetDashboard(int warehouseId)
 {
     mis::dao::DbSessionGuard db;
     InventoryService::DashboardStats s;
 
-    auto r1 = mis::dao::oracle().query("SELECT NVL(SUM(quantity), 0) AS T FROM inventory");
+    auto r1 = mis::dao::oracle().query(
+        "SELECT NVL(SUM(quantity), 0) AS T FROM inventory WHERE warehouse_id = :wh",
+        {{"wh", std::to_string(warehouseId)}});
     if (!r1.empty()) s.totalStock = std::stoi(r1[0].at("T"));
 
     auto r2 = mis::dao::oracle().query(
-        "SELECT NVL(SUM(quantity_received), 0) AS T FROM inbound_order_lines WHERE TRUNC(created_at) = TRUNC(SYSDATE)");
+        "SELECT NVL(SUM(iol.quantity_received), 0) AS T "
+        "FROM inbound_order_lines iol "
+        "JOIN inbound_orders io ON iol.inbound_id = io.inbound_id "
+        "WHERE TRUNC(io.created_at) = TRUNC(SYSDATE)");
     if (!r2.empty()) s.inboundToday = std::stoi(r2[0].at("T"));
 
-    auto r3 = mis::dao::oracle().query("SELECT COUNT(*) AS T FROM inventory WHERE quantity < 10");
+    auto r3 = mis::dao::oracle().query(
+        "SELECT COUNT(*) AS T FROM inventory "
+        "WHERE warehouse_id = :wh AND quantity < NVL(safety_stock, 10)",
+        {{"wh", std::to_string(warehouseId)}});
     if (!r3.empty()) s.lowStockSku = std::stoi(r3[0].at("T"));
 
     auto r4 = mis::dao::oracle().query("SELECT COUNT(*) AS T FROM inbound_orders WHERE status IN ('DRAFT','SUBMITTED','PARTIAL')");
     if (!r4.empty()) s.pendingInbound = std::stoi(r4[0].at("T"));
 
+    auto r5 = mis::dao::oracle().query("SELECT COUNT(*) AS T FROM inbound_orders WHERE status = 'CANCELLED'");
+    if (!r5.empty()) s.exceptionCount = std::stoi(r5[0].at("T"));
+
     return s;
+}
+
+static InventoryService::ReceiveBySkuResult oracleReceiveBySku(
+    const std::string& skuCode, int productId, int quantity)
+{
+    mis::dao::DbSessionGuard db;
+    InventoryService::ReceiveBySkuResult result;
+
+    // 1. 查找待收货的入库单明细行（FIFO：按入库单创建时间排序）
+    auto lines = mis::dao::oracle().query(
+        "SELECT iol.line_id, iol.inbound_id, iol.quantity_ordered, iol.quantity_received, io.status "
+        "FROM inbound_order_lines iol "
+        "JOIN inbound_orders io ON iol.inbound_id = io.inbound_id "
+        "WHERE iol.product_id = :pid "
+        "  AND io.status IN ('SUBMITTED', 'PARTIAL') "
+        "  AND iol.quantity_received < iol.quantity_ordered "
+        "ORDER BY io.created_at ASC",
+        {{"pid", std::to_string(productId)}}
+    );
+
+    if (lines.empty()) {
+        result.success = false;
+        result.message = "没有找到该商品对应的待收货入库单（需要先创建并提交采购入库单）";
+        return result;
+    }
+
+    // 2. FIFO 收货
+    int remaining = quantity;
+    for (const auto& lr : lines) {
+        if (remaining <= 0) break;
+
+        int lineId = std::stoi(lr.at("LINE_ID"));
+        int ordered = std::stoi(lr.at("QUANTITY_ORDERED"));
+        int received = std::stoi(lr.at("QUANTITY_RECEIVED"));
+        int inboundId = std::stoi(lr.at("INBOUND_ID"));
+        int canReceive = ordered - received;
+        int toReceive = std::min(remaining, canReceive);
+        int newReceived = received + toReceive;
+
+        // 更新明细行
+        mis::dao::oracle().execute(
+            "UPDATE inbound_order_lines SET quantity_received = :qty WHERE line_id = :lid",
+            {{"qty", std::to_string(newReceived)}, {"lid", std::to_string(lineId)}}
+        );
+
+        // 更新库存
+        auto invRows = mis::dao::oracle().query(
+            "SELECT COUNT(*) AS CNT FROM inventory WHERE product_id = :pid",
+            {{"pid", std::to_string(productId)}}
+        );
+        if (std::stoi(invRows[0].at("CNT")) == 0) {
+            auto seqRow = mis::dao::oracle().query("SELECT seq_inventory.NEXTVAL AS ID FROM DUAL");
+            mis::dao::oracle().execute(
+                "INSERT INTO inventory (inventory_id, product_id, quantity, version, updated_at) "
+                "VALUES (:iid, :pid, :qty, 1, SYSTIMESTAMP)",
+                {{"iid", seqRow[0].at("ID")}, {"pid", std::to_string(productId)}, {"qty", std::to_string(toReceive)}}
+            );
+        } else {
+            mis::dao::oracle().execute(
+                "UPDATE inventory SET quantity = quantity + :qty, version = version + 1, updated_at = SYSTIMESTAMP "
+                "WHERE product_id = :pid",
+                {{"qty", std::to_string(toReceive)}, {"pid", std::to_string(productId)}}
+            );
+        }
+
+        // 更新入库单状态
+        auto summary = mis::dao::oracle().query(
+            "SELECT COUNT(*) AS TOTAL, "
+            "SUM(CASE WHEN quantity_received >= quantity_ordered THEN 1 ELSE 0 END) AS FULL_CNT "
+            "FROM inbound_order_lines WHERE inbound_id = :iid",
+            {{"iid", std::to_string(inboundId)}}
+        );
+        int total = std::stoi(summary[0].at("TOTAL"));
+        int fullCnt = std::stoi(summary[0].at("FULL_CNT"));
+        std::string newStatus = (fullCnt == total) ? "RECEIVED" : "PARTIAL";
+
+        mis::dao::oracle().execute(
+            std::string("UPDATE inbound_orders SET status = '") + newStatus +
+            (newStatus == "RECEIVED" ? "', received_at = SYSTIMESTAMP" : "'") +
+            " WHERE inbound_id = :iid",
+            {{"iid", std::to_string(inboundId)}}
+        );
+
+        result.orderIds.push_back(inboundId);
+        result.totalReceived += toReceive;
+        remaining -= toReceive;
+    }
+
+    mis::dao::oracle().commit();
+
+    result.success = true;
+    if (remaining > 0) {
+        result.message = "部分收货成功：已收 " + std::to_string(result.totalReceived)
+            + "，剩余 " + std::to_string(remaining) + " 无可收明细";
+    } else {
+        result.message = "收货成功：共 " + std::to_string(result.totalReceived) + " 件";
+    }
+    return result;
+}
+
+static std::vector<InventoryService::TrendPoint> oracleGetRecentTrend(int days)
+{
+    mis::dao::DbSessionGuard db;
+    std::vector<InventoryService::TrendPoint> result;
+
+    auto rows = mis::dao::oracle().query(
+        "SELECT TO_CHAR(TRUNC(io.created_at), 'MM-DD') AS dt, "
+        "NVL(SUM(iol.quantity_received), 0) AS qty "
+        "FROM inbound_orders io "
+        "JOIN inbound_order_lines iol ON io.inbound_id = iol.inbound_id "
+        "WHERE io.created_at >= TRUNC(SYSDATE) - :days "
+        "GROUP BY TRUNC(io.created_at) ORDER BY dt",
+        {{"days", std::to_string(days)}}
+    );
+
+    for (const auto& r : rows) {
+        result.push_back({r.at("DT"), std::stoi(r.at("QTY"))});
+    }
+    return result;
 }
 
 #endif // MIS_HAS_ORACLE
@@ -426,23 +566,123 @@ static std::vector<models::InboundOrder> memListInbound(const std::string& statu
     return {result.begin() + s, result.begin() + e};
 }
 
-static InventoryService::DashboardStats memGetDashboard()
+static InventoryService::DashboardStats memGetDashboard(int /*warehouseId*/)
 {
     InventoryService::DashboardStats s;
     s.totalStock = 12860;
     s.pendingInbound = 0;
     for (const auto& o : memOrders) {
         if (o.status == "DRAFT" || o.status == "SUBMITTED" || o.status == "PARTIAL") s.pendingInbound++;
+        if (o.status == "CANCELLED") s.exceptionCount++;
         for (const auto& l : o.lines) s.inboundToday += l.quantityReceived;
     }
-    s.lowStockSku = 3;
+    // 低库存：统计待收货商品中库存不足的（简化逻辑）
+    s.lowStockSku = s.totalStock < 100 ? 3 : 0;
     return s;
+}
+
+static InventoryService::ReceiveBySkuResult memReceiveBySku(
+    const std::string& /*skuCode*/, int productId, int quantity)
+{
+    InventoryService::ReceiveBySkuResult result;
+
+    // 收集所有待收货的明细行（FIFO：按入库单创建顺序）
+    struct PendingLine {
+        int lineId;
+        int inboundId;
+        int ordered;
+        int received;
+        models::InboundOrder* order;
+    };
+    std::vector<PendingLine> pending;
+    for (auto& order : memOrders) {
+        if (order.status != "SUBMITTED" && order.status != "PARTIAL") continue;
+        for (auto& line : order.lines) {
+            if (line.productId == productId && line.quantityReceived < line.quantityOrdered) {
+                pending.push_back({line.lineId, order.inboundId,
+                    line.quantityOrdered, line.quantityReceived, &order});
+            }
+        }
+    }
+
+    if (pending.empty()) {
+        result.success = false;
+        result.message = "没有找到该商品对应的待收货入库单（需要先创建并提交采购入库单）";
+        return result;
+    }
+
+    // FIFO 收货
+    int remaining = quantity;
+    for (auto& pl : pending) {
+        if (remaining <= 0) break;
+
+        int canReceive = pl.ordered - pl.received;
+        int toReceive = std::min(remaining, canReceive);
+
+        // 找到对应 line 并更新
+        for (auto& line : pl.order->lines) {
+            if (line.lineId == pl.lineId) {
+                line.quantityReceived += toReceive;
+                break;
+            }
+        }
+
+        // 更新订单状态
+        bool allReceived = true;
+        for (const auto& l : pl.order->lines) {
+            if (l.quantityReceived < l.quantityOrdered) { allReceived = false; break; }
+        }
+        pl.order->status = allReceived ? "RECEIVED" : "PARTIAL";
+        if (allReceived) pl.order->receivedAt = nowISO();
+
+        result.orderIds.push_back(pl.inboundId);
+        result.totalReceived += toReceive;
+        remaining -= toReceive;
+    }
+
+    result.success = true;
+    if (remaining > 0) {
+        result.message = "部分收货成功：已收 " + std::to_string(result.totalReceived)
+            + "，剩余 " + std::to_string(remaining) + " 无可收明细";
+    } else {
+        result.message = "收货成功：共 " + std::to_string(result.totalReceived) + " 件";
+    }
+    return result;
+}
+
+static std::vector<InventoryService::TrendPoint> memGetRecentTrend(int days)
+{
+    std::vector<InventoryService::TrendPoint> result;
+
+    // 生成最近 N 天的日期列表
+    std::time_t now = std::time(nullptr);
+    for (int i = days - 1; i >= 0; --i) {
+        std::time_t day = now - i * 86400;
+        char buf[8];
+        std::strftime(buf, sizeof(buf), "%m-%d", std::localtime(&day));
+        result.push_back({std::string(buf), 0});
+    }
+
+    // 统计每天的收货量
+    for (const auto& o : memOrders) {
+        // 从 createdAt 提取日期
+        if (o.createdAt.size() < 10) continue;
+        std::string orderDay = o.createdAt.substr(5, 5); // "MM-DD"
+        for (auto& tp : result) {
+            if (tp.date == orderDay) {
+                for (const auto& l : o.lines)
+                    tp.quantity += l.quantityReceived;
+            }
+        }
+    }
+    return result;
 }
 
 // =========================================================================
 // 统一接口（自动选择 Oracle / 内存）
 // =========================================================================
 
+#ifdef MIS_HAS_ORACLE
 #define TRY_ORACLE(call, fallback) \
     do { \
         if (oracleAvailable()) { \
@@ -452,6 +692,9 @@ static InventoryService::DashboardStats memGetDashboard()
         } \
         return mem##call; \
     } while(0)
+#else
+#define TRY_ORACLE(call, fallback) return mem##call;
+#endif
 
 models::InboundOrder InventoryService::createInbound(const models::InboundRequest& req) {
     validateInbound(req);
@@ -470,6 +713,12 @@ void InventoryService::receiveLine(int lineId, double qty, int) {
     TRY_ORACLE(ReceiveLine(lineId, qty), ReceiveLine(lineId, qty));
 }
 
+InventoryService::ReceiveBySkuResult InventoryService::receiveBySku(
+    const std::string& skuCode, int productId, int quantity) {
+    TRY_ORACLE(ReceiveBySku(skuCode, productId, quantity),
+               ReceiveBySku(skuCode, productId, quantity));
+}
+
 models::InboundOrder InventoryService::getInbound(int id) {
     TRY_ORACLE(GetInbound(id), GetInbound(id));
 }
@@ -479,8 +728,13 @@ std::vector<models::InboundOrder> InventoryService::listInbound(
     TRY_ORACLE(ListInbound(status, supplierId, limit, offset), ListInbound(status, supplierId, limit, offset));
 }
 
-InventoryService::DashboardStats InventoryService::getDashboard() {
-    TRY_ORACLE(GetDashboard(), GetDashboard());
+InventoryService::DashboardStats InventoryService::getDashboard(int warehouseId) {
+    TRY_ORACLE(GetDashboard(warehouseId), GetDashboard(warehouseId));
+}
+
+std::vector<InventoryService::TrendPoint> InventoryService::getRecentTrend(int days, int warehouseId)
+{
+    TRY_ORACLE(GetRecentTrend(days), GetRecentTrend(days));
 }
 
 void InventoryService::validateInbound(const models::InboundRequest& request)

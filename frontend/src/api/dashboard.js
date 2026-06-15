@@ -31,7 +31,7 @@ export async function getDashboardOverview(params = {}) {
   }
 
   // 后端统一返回 /api/inventory/dashboard
-  const res = await request.get('/inventory/dashboard');
+  const res = await request.get('/inventory/dashboard', { params });
   const data = res.data || {};
 
   return {
@@ -40,6 +40,7 @@ export async function getDashboardOverview(params = {}) {
     lowStockSku: data.lowStockSku ?? data.low_stock_sku ?? 0,
     exceptionCount: data.exceptionCount ?? data.exception_count ?? 0,
     pendingInbound: data.pendingInbound ?? data.pending_inbound ?? 0,
+    trend: data.trend || [],
     warehouseCode: params.warehouseCode || 'DEFAULT'
   };
 }
@@ -49,15 +50,14 @@ export async function getStockTrend(params = {}) {
     return mockWait({ list: mockTrend });
   }
 
-  const res = await request.get('/inventory/dashboard');
+  const res = await request.get('/inventory/dashboard', { params });
   const data = res.data || {};
   const trend = data.trend || data.stockTrend || [];
 
   return {
     list: trend.map((item) => ({
-      label: item.label || item.date || item.day || '',
-      inbound: item.inbound ?? item.quantity ?? 0,
-      outbound: item.outbound ?? 0
+      date: item.date || item.label || item.day || '',
+      quantity: item.quantity ?? item.inbound ?? 0,
     }))
   };
 }

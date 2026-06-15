@@ -24,7 +24,8 @@ const emptySku = () => ({
 const filters = reactive({
   keyword: '',
   category: '',
-  status: ''
+  status: '',
+  lowStock: false
 });
 const skuForm = reactive(emptySku());
 const skuItems = ref([]);
@@ -54,7 +55,9 @@ const loadSkus = async () => {
   loading.value = true;
 
   try {
-    const result = await getSkuList({ ...filters, page: 1, pageSize: 20 });
+    const params = { ...filters, page: 1, pageSize: 20 };
+    if (filters.lowStock) params.lowStock = '1';
+    const result = await getSkuList(params);
     skuItems.value = result.list;
     total.value = result.total;
   } finally {
@@ -197,6 +200,14 @@ onMounted(loadSkus);
               <option value="active">启用</option>
               <option value="disabled">停用</option>
             </select>
+            <button
+              type="button"
+              class="btn"
+              :class="filters.lowStock ? 'btn-warning' : 'btn-ghost'"
+              @click="filters.lowStock = !filters.lowStock; loadSkus()"
+            >
+              ⚠ 低库存
+            </button>
             <button class="btn btn-primary" type="submit">查询</button>
           </form>
         </div>

@@ -16,12 +16,14 @@ CREATE TABLE users (
     user_id       NUMBER(10)       NOT NULL,
     username      VARCHAR2(64)     NOT NULL,
     password_hash VARCHAR2(256)    NOT NULL,
+    real_name     VARCHAR2(64),
     phone         VARCHAR2(20),
     role          VARCHAR2(20)     NOT NULL,
     created_at    TIMESTAMP        DEFAULT SYSTIMESTAMP NOT NULL,
     CONSTRAINT pk_users PRIMARY KEY (user_id),
     CONSTRAINT uk_users_username UNIQUE (username),
-    CONSTRAINT ck_users_role CHECK (role IN ('ADMIN', 'OPERATOR', 'CUSTOMER'))
+    CONSTRAINT ck_users_role CHECK (role IN ('admin', 'keeper', 'purchaser', 'data_manager',
+                                              'ADMIN', 'OPERATOR', 'CUSTOMER'))
 );
 
 COMMENT ON TABLE users IS '系统用户（含管理员、操作员、客户）';
@@ -47,12 +49,16 @@ COMMENT ON TABLE categories IS '商品分类（树形结构）';
 CREATE TABLE products (
     product_id    NUMBER(10)     NOT NULL,
     product_name  VARCHAR2(200)  NOT NULL,
+    sku_code      VARCHAR2(64),
     category_id   NUMBER(10)     NOT NULL,
+    unit          VARCHAR2(20)   DEFAULT '件',
     unit_price    NUMBER(12, 2)  DEFAULT 0 NOT NULL,
+    status        VARCHAR2(20)   DEFAULT 'active' NOT NULL,
     created_at    TIMESTAMP      DEFAULT SYSTIMESTAMP NOT NULL,
     CONSTRAINT pk_products PRIMARY KEY (product_id),
     CONSTRAINT fk_products_category
-        FOREIGN KEY (category_id) REFERENCES categories (category_id)
+        FOREIGN KEY (category_id) REFERENCES categories (category_id),
+    CONSTRAINT ck_products_status CHECK (status IN ('active', 'disabled'))
 );
 
 COMMENT ON TABLE products IS '商品/SKU 主数据';
@@ -60,18 +66,37 @@ COMMENT ON TABLE products IS '商品/SKU 主数据';
 CREATE INDEX idx_products_category ON products (category_id);
 
 -- -----------------------------------------------------------------------------
+-- 3.5. 仓库表
+-- -----------------------------------------------------------------------------
+CREATE TABLE warehouses (
+    warehouse_id   NUMBER(10)    NOT NULL,
+    warehouse_code VARCHAR2(20)  NOT NULL,
+    warehouse_name VARCHAR2(100) NOT NULL,
+    address        VARCHAR2(200),
+    status         VARCHAR2(20)  DEFAULT 'active' NOT NULL,
+    created_at     TIMESTAMP     DEFAULT SYSTIMESTAMP NOT NULL,
+    CONSTRAINT pk_warehouses PRIMARY KEY (warehouse_id),
+    CONSTRAINT uk_warehouses_code UNIQUE (warehouse_code),
+    CONSTRAINT ck_warehouses_status CHECK (status IN ('active', 'disabled'))
+);
+
+-- -----------------------------------------------------------------------------
 -- 4. 库存表（独立管理，支持乐观锁）
 -- -----------------------------------------------------------------------------
 CREATE TABLE inventory (
     inventory_id NUMBER(10)    NOT NULL,
     product_id   NUMBER(10)    NOT NULL,
+    warehouse_id NUMBER(10)    DEFAULT 1 NOT NULL,
     quantity     NUMBER(12, 3) DEFAULT 0 NOT NULL,
+    safety_stock NUMBER(10)    DEFAULT 0,
     version      NUMBER(10)    DEFAULT 0 NOT NULL,
     updated_at   TIMESTAMP     DEFAULT SYSTIMESTAMP NOT NULL,
     CONSTRAINT pk_inventory PRIMARY KEY (inventory_id),
-    CONSTRAINT uk_inventory_product UNIQUE (product_id),
+    CONSTRAINT uk_inventory_product_wh UNIQUE (product_id, warehouse_id),
     CONSTRAINT fk_inventory_product
         FOREIGN KEY (product_id) REFERENCES products (product_id),
+    CONSTRAINT fk_inventory_warehouse
+        FOREIGN KEY (warehouse_id) REFERENCES warehouses (warehouse_id),
     CONSTRAINT ck_inventory_quantity CHECK (quantity >= 0)
 );
 
@@ -84,9 +109,15 @@ COMMENT ON COLUMN inventory.version IS '乐观锁版本号，入库/出库时递
 CREATE TABLE suppliers (
     supplier_id   NUMBER(10)    NOT NULL,
     supplier_name VARCHAR2(200) NOT NULL,
+    supplier_code VARCHAR2(64),
     contact_name  VARCHAR2(64),
     contact_phone VARCHAR2(20),
-    CONSTRAINT pk_suppliers PRIMARY KEY (supplier_id)
+    rating        VARCHAR2(10)  DEFAULT 'B',
+    status        VARCHAR2(20)  DEFAULT 'active' NOT NULL,
+    address       VARCHAR2(200),
+    remark        VARCHAR2(500),
+    CONSTRAINT pk_suppliers PRIMARY KEY (supplier_id),
+    CONSTRAINT ck_suppliers_status CHECK (status IN ('active', 'paused'))
 );
 
 COMMENT ON TABLE suppliers IS '供应商';

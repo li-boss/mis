@@ -8,6 +8,8 @@
 #include "controllers/InventoryController.hpp"
 #include "models/InventoryModel.hpp"
 #include "services/InventoryService.hpp"
+#include "services/WarehouseService.hpp"
+#include "utils/Encoding.h"
 
 #include <nlohmann/json.hpp>
 #include <string>
@@ -71,7 +73,7 @@ void InventoryController::registerRoutes(httplib::Server& server)
             inbound.createdBy = body.value("createdBy", body.value("created_by", 0));
             inbound.remark = body.value("remark", "");
 
-            // 解析 lines 数组
+            // 解析 lines 数组（采购入库单格式）
             if (body.contains("lines") && body["lines"].is_array()) {
                 for (const auto& lj : body["lines"]) {
                     models::InboundLine line;
@@ -82,33 +84,16 @@ void InventoryController::registerRoutes(httplib::Server& server)
                 }
             }
 
-            // 兼容 Dashboard 快捷入库（单 SKU）
-            if (inbound.lines.empty() && body.contains("skuCode")) {
-                models::InboundLine line;
-                std::string skuStr = body.value("skuCode", "0");
-                // 尝试解析数字 ID
-                try { line.productId = std::stoi(skuStr); }
-                catch (...) { line.productId = std::hash<std::string>{}(skuStr) % 9000 + 1000; }
-                line.quantityOrdered = body.value("quantity", 0);
-                line.unitPrice = 0.0;
-                inbound.lines.push_back(line);
-            }
-
-            // 未传 supplierId 给默认值
-            if (inbound.supplierId <= 0) {
-                inbound.supplierId = body.value("supplierId", body.value("supplier_id", 1));
-            }
-
             auto result = services::makeInventoryService().createInbound(inbound);
             res.status = 201;
             res.set_content(ok({{"inboundId", result.inboundId}},
                 "入库单 " + std::to_string(result.inboundId) + " 创建成功"), "application/json");
         } catch (const models::ValidationError& ex) {
             res.status = 400;
-            res.set_content(fail(-1, ex.what()), "application/json");
+            res.set_content(fail(-1, mis::utils::safeError(ex)), "application/json");
         } catch (const std::exception& ex) {
             res.status = 500;
-            res.set_content(fail(-99, ex.what()), "application/json");
+            res.set_content(fail(-99, mis::utils::safeError(ex)), "application/json");
         }
     });
 
@@ -138,7 +123,7 @@ void InventoryController::registerRoutes(httplib::Server& server)
             res.set_content(ok({{"list", dataArr}, {"total", total}}), "application/json");
         } catch (const std::exception& ex) {
             res.status = 500;
-            res.set_content(fail(-99, ex.what()), "application/json");
+            res.set_content(fail(-99, mis::utils::safeError(ex)), "application/json");
         }
     });
 
@@ -156,7 +141,7 @@ void InventoryController::registerRoutes(httplib::Server& server)
             }
         } catch (const std::exception& ex) {
             res.status = 500;
-            res.set_content(fail(-99, ex.what()), "application/json");
+            res.set_content(fail(-99, mis::utils::safeError(ex)), "application/json");
         }
     });
 
@@ -169,10 +154,10 @@ void InventoryController::registerRoutes(httplib::Server& server)
             res.set_content(okMsg("入库单 " + std::to_string(id) + " 已提交"), "application/json");
         } catch (const models::ValidationError& ex) {
             res.status = 400;
-            res.set_content(fail(-400, ex.what()), "application/json");
+            res.set_content(fail(-400, mis::utils::safeError(ex)), "application/json");
         } catch (const std::exception& ex) {
             res.status = 500;
-            res.set_content(fail(-99, ex.what()), "application/json");
+            res.set_content(fail(-99, mis::utils::safeError(ex)), "application/json");
         }
     });
 
@@ -185,10 +170,10 @@ void InventoryController::registerRoutes(httplib::Server& server)
             res.set_content(okMsg("入库单 " + std::to_string(id) + " 已取消"), "application/json");
         } catch (const models::ValidationError& ex) {
             res.status = 400;
-            res.set_content(fail(-300, ex.what()), "application/json");
+            res.set_content(fail(-300, mis::utils::safeError(ex)), "application/json");
         } catch (const std::exception& ex) {
             res.status = 500;
-            res.set_content(fail(-99, ex.what()), "application/json");
+            res.set_content(fail(-99, mis::utils::safeError(ex)), "application/json");
         }
     });
 
@@ -204,24 +189,31 @@ void InventoryController::registerRoutes(httplib::Server& server)
             res.set_content(ok(json::object(), "收货成功"), "application/json");
         } catch (const models::ValidationError& ex) {
             res.status = 400;
-            res.set_content(fail(-100, ex.what()), "application/json");
+            res.set_content(fail(-100, mis::utils::safeError(ex)), "application/json");
         } catch (const std::exception& ex) {
             res.status = 500;
-            res.set_content(fail(-99, ex.what()), "application/json");
+            res.set_content(fail(-99, mis::utils::safeError(ex)), "application/json");
         }
     });
 
     // 7. 看板数据  GET /api/inventory/dashboard
-    server.Get("/api/inventory/dashboard", [](const httplib::Request&, httplib::Response& res) {
+    server.Get("/api/inventory/dashboard", [](const httplib::Request& req, httplib::Response& res) {
         try {
-            auto stats = services::makeInventoryService().getDashboard();
+            // 按仓库过滤
+            std::string whCode = req.has_param("warehouseCode")
+                ? req.get_param_value("warehouseCode") : "DEFAULT";
+            int warehouseId = 1;
+            try {
+                warehouseId = mis::services::makeWarehouseService().getByCode(whCode).id;
+            } catch (...) { warehouseId = 1; }
 
-            // 模拟趋势数据
+            auto stats = services::makeInventoryService().getDashboard(warehouseId);
+
+            // 动态趋势数据
             json trend = json::array();
-            const char* days[] = {"06-08","06-09","06-10","06-11","06-12","06-13","06-14"};
-            int values[] = {128, 184, 146, 236, 211, 274, 336};
-            for (int i = 0; i < 7; ++i) {
-                trend.push_back({{"date", days[i]}, {"quantity", values[i]}});
+            auto trendData = services::makeInventoryService().getRecentTrend(7, warehouseId);
+            for (const auto& tp : trendData) {
+                trend.push_back({{"date", tp.date}, {"quantity", tp.quantity}});
             }
 
             res.status = 200;
@@ -235,7 +227,88 @@ void InventoryController::registerRoutes(httplib::Server& server)
             }), "application/json");
         } catch (const std::exception& ex) {
             res.status = 500;
-            res.set_content(fail(-99, ex.what()), "application/json");
+            res.set_content(fail(-99, mis::utils::safeError(ex)), "application/json");
+        }
+    });
+
+    // 8. SKU 收货（快速入库） POST /api/inventory/inbound/receive-by-sku
+    server.Post("/api/inventory/inbound/receive-by-sku", [](const httplib::Request& req, httplib::Response& res) {
+        try {
+            const auto body = json::parse(req.body);
+
+            int productId = body.value("productId", body.value("product_id", 0));
+            std::string skuCode = body.value("skuCode", body.value("sku_code", ""));
+            int quantity = body.value("quantity", 0);
+
+            // 通过 skuCode 解析 productId
+            if (productId <= 0 && !skuCode.empty()) {
+                // 1. 直接解析为数字（如 "1001"）
+                try {
+                    productId = std::stoi(skuCode);
+                } catch (...) {
+                    // 2. 尝试提取 "SKU-数字" 格式（如 "SKU-1001"）
+                    std::string s = skuCode;
+                    auto dashPos = s.rfind('-');
+                    if (dashPos != std::string::npos) {
+                        try {
+                            productId = std::stoi(s.substr(dashPos + 1));
+                        } catch (...) {}
+                    }
+                    // 3. 仍失败则保持 0
+                }
+            }
+
+            if (productId <= 0) {
+                res.status = 400;
+                res.set_content(fail(-1, "无法识别 SKU：" + skuCode
+                    + "，请输入数字 productId 或 SKU-数字 格式"), "application/json");
+                return;
+            }
+            if (quantity <= 0) {
+                res.status = 400;
+                res.set_content(fail(-1, "收货数量必须大于 0"), "application/json");
+                return;
+            }
+
+            auto result = services::makeInventoryService().receiveBySku(skuCode, productId, quantity);
+
+            res.status = result.success ? 200 : 400;
+            json data = {
+                {"success", result.success},
+                {"totalReceived", result.totalReceived},
+                {"orderIds", result.orderIds}
+            };
+            res.set_content(ok(data, result.message), "application/json");
+        } catch (const models::ValidationError& ex) {
+            res.status = 400;
+            res.set_content(fail(-100, mis::utils::safeError(ex)), "application/json");
+        } catch (const std::exception& ex) {
+            res.status = 500;
+            res.set_content(fail(-99, mis::utils::safeError(ex)), "application/json");
+        }
+    });
+
+    // 9. 仓库列表  GET /api/inventory/warehouses
+    server.Get("/api/inventory/warehouses", [](const httplib::Request&, httplib::Response& res) {
+        try {
+            auto list = mis::services::makeWarehouseService().list();
+            json arr = json::array();
+            for (const auto& w : list) {
+                arr.push_back({
+                    {"id", w.id},
+                    {"code", w.code},
+                    {"name", w.name},
+                    {"address", w.address},
+                    {"status", w.status}
+                });
+            }
+            res.status = 200;
+            res.set_content(json{{"code", 0}, {"data", {{"list", arr}, {"total", list.size()}}}}.dump(),
+                            "application/json");
+        } catch (const std::exception& ex) {
+            res.status = 500;
+            res.set_content(json{{"code", -99},
+                {"message", mis::utils::safeError(ex)}}.dump(), "application/json");
         }
     });
 }
