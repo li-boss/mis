@@ -54,9 +54,7 @@ const submit = async (payload) => {
   display: grid;
   place-items: center;
   padding: 24px;
-  background:
-    linear-gradient(90deg, rgba(35, 50, 68, 0.95) 0 33%, transparent 33%),
-    var(--color-bg);
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
 }
 
 .auth-card {

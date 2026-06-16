@@ -13,6 +13,7 @@
 #include <iostream>
 #include <mutex>
 #include <ctime>
+#include <unordered_map>
 
 namespace mis::services {
 
@@ -52,12 +53,12 @@ static bool oracleAvailable()
         mis::dao::DbSessionGuard db;
         mis::dao::oracle().query("SELECT 1 FROM DUAL");
         available = true;
-        std::cout << "[SKU] Oracle 检测通过，使用 Oracle 存储\n";
+        std::cout << "[SKU] Oracle connection verified, using Oracle storage\n";
     } catch (const std::exception& ex) {
-        std::cerr << "[SKU] Oracle 不可用: " << ex.what() << "，降级内存存储\n";
+        std::cerr << "[SKU] Oracle unavailable: " << ex.what() << ", using in-memory fallback\n";
         available = false;
     } catch (...) {
-        std::cerr << "[SKU] Oracle 不可用: 未知异常，降级内存存储\n";
+        std::cerr << "[SKU] Oracle unavailable: unknown error, using in-memory fallback\n";
         available = false;
     }
     return available;

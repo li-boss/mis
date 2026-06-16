@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <iostream>
 #include <mutex>
+#include <unordered_map>
 
 namespace mis::services {
 
@@ -42,9 +43,9 @@ static bool oracleAvailable()
         mis::dao::DbSessionGuard db;
         mis::dao::oracle().query("SELECT 1 FROM DUAL");
         available = true;
-        std::cout << "[SUPPLIER] Oracle 检测通过，使用 Oracle 存储\n";
+        std::cout << "[SUPPLIER] Oracle connection verified, using Oracle storage\n";
     } catch (...) {
-        std::cerr << "[SUPPLIER] Oracle 不可用，降级内存存储\n";
+        std::cerr << "[SUPPLIER] Oracle unavailable, using in-memory fallback\n";
         available = false;
     }
     return available;
@@ -287,10 +288,10 @@ static void memUpdateStatus(int id, const std::string& status) {
 #ifdef MIS_HAS_ORACLE
 #define TRY_SUP_ORACLE(call, fallback) \
     do { if (oracleAvailable()) { try { return oracle##call; } catch (const std::exception& ex) { \
-        std::cerr << "[SUPPLIER] Oracle 操作失败: " << ex.what() << "，降级内存\n"; } } return mem##call; } while(0)
+        std::cerr << "[SUPPLIER] Oracle operation failed: " << ex.what() << ", using in-memory fallback\n"; } } return mem##call; } while(0)
 #define TRY_SUP_ORACLE_VOID(call, fallback) \
     do { if (oracleAvailable()) { try { oracle##call; return; } catch (const std::exception& ex) { \
-        std::cerr << "[SUPPLIER] Oracle 操作失败: " << ex.what() << "，降级内存\n"; } } mem##call; } while(0)
+        std::cerr << "[SUPPLIER] Oracle operation failed: " << ex.what() << ", using in-memory fallback\n"; } } mem##call; } while(0)
 #else
 #define TRY_SUP_ORACLE(call, fallback) return mem##call;
 #define TRY_SUP_ORACLE_VOID(call, fallback) mem##call;

@@ -42,25 +42,39 @@ const chartMax = computed(() => {
   return Math.max(...trend.value.map(t => t.quantity || 0), 1);
 });
 
-const chartPoints = computed(() => {
-  if (!trend.value.length) return '';
-  const w = 640, h = 180, pad = 20;
+const parsedPoints = computed(() => {
+  if (!trend.value.length) return [];
+  const w = 640, h = 180, pad = 28;
   const step = (w - pad * 2) / (trend.value.length - 1 || 1);
   return trend.value.map((t, i) => {
     const x = pad + i * step;
-    const y = h - (t.quantity || 0) / chartMax.value * (h - 10);
-    return `${Math.round(x)},${Math.round(y)}`;
-  }).join(' ');
+    // Keep y within 30 to 145 to leave space for labels and avoid clipping
+    const y = 145 - (t.quantity || 0) / chartMax.value * 110;
+    return {
+      x: Math.round(x),
+      y: Math.round(y),
+      value: t.quantity || 0,
+      date: t.date || t.label || ''
+    };
+  });
+});
+
+const chartPoints = computed(() => {
+  return parsedPoints.value.map(p => `${p.x},${p.y}`).join(' ');
+});
+
+const chartFillPoints = computed(() => {
+  if (!parsedPoints.value.length) return '';
+  const first = parsedPoints.value[0];
+  const last = parsedPoints.value[parsedPoints.value.length - 1];
+  return `${first.x},180 ` + parsedPoints.value.map(p => `${p.x},${p.y}`).join(' ') + ` ${last.x},180`;
 });
 
 const barItems = computed(() => {
   if (!trend.value.length) return [];
-  const maxH = 140;
   return trend.value.map(t => ({
     date: t.date || t.label || '',
     value: t.quantity || 0,
-    pct: Math.round((t.quantity || 0) / chartMax.value * 100),
-    height: Math.max(4, Math.round((t.quantity || 0) / chartMax.value * maxH)),
   }));
 });
 
@@ -122,26 +136,59 @@ onMounted(loadDashboard);
           <div class="chart-lines">
             <span></span><span></span><span></span><span></span>
           </div>
-          <!-- 折线 -->
-          <svg v-if="trend.length" viewBox="0 0 640 180" role="img" aria-hidden="true">
+          <!-- 折线 + 渐变填充 + 数据点 -->
+          <svg v-if="trend.length" viewBox="0 0 640 180" role="img" aria-hidden="true" class="line-chart-svg">
+            <defs>
+              <linearGradient id="chart-grad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="var(--color-primary)" stop-opacity="0.25" />
+                <stop offset="100%" stop-color="var(--color-primary)" stop-opacity="0.00" />
+              </linearGradient>
+            </defs>
+            <!-- 渐变填充区域 -->
+            <polygon
+              :points="chartFillPoints"
+              fill="url(#chart-grad)"
+            />
+            <!-- 趋势折线 -->
             <polyline
               :points="chartPoints"
-              fill="none" stroke="#2579ed" stroke-width="4"
+              fill="none" stroke="var(--color-primary)" stroke-width="3.5"
               stroke-linecap="round" stroke-linejoin="round"
             />
+            <!-- 数据点圆圈 -->
+            <circle
+              v-for="(pt, i) in parsedPoints"
+              :key="'circle-' + i"
+              :cx="pt.x"
+              :cy="pt.y"
+              r="5.5"
+              fill="#ffffff"
+              stroke="var(--color-primary)"
+              stroke-width="3"
+              class="chart-dot"
+            />
+            <!-- 数据值标注 -->
+            <text
+              v-for="(pt, i) in parsedPoints"
+              :key="'text-' + i"
+              :x="pt.x"
+              :y="pt.y - 12"
+              text-anchor="middle"
+              font-size="11"
+              font-weight="700"
+              fill="var(--color-text)"
+              class="chart-val"
+            >
+              {{ pt.value }}
+            </text>
           </svg>
-          <!-- 柱状 + 数值 -->
-          <div class="bar-row" v-if="trend.length">
+          <!-- 底部的日期轴 -->
+          <div class="date-row" v-if="trend.length">
             <div
               v-for="(b, i) in barItems"
               :key="i"
-              class="bar-col"
+              class="date-col"
             >
-              <span class="bar-val">{{ b.value }}</span>
-              <span
-                class="trend-bar"
-                :style="{ height: b.height + 'px' }"
-              ></span>
               <span class="bar-date">{{ b.date }}</span>
             </div>
           </div>
@@ -207,7 +254,7 @@ onMounted(loadDashboard);
   border-top: 1px solid #e8edf4;
 }
 
-.trend-chart svg {
+.line-chart-svg {
   position: absolute;
   inset: 0 0 30px;
   z-index: 2;
@@ -215,40 +262,44 @@ onMounted(loadDashboard);
   height: calc(100% - 30px);
 }
 
-.bar-row {
+.chart-dot {
+  transition: r 0.2s ease, stroke-width 0.2s ease;
+  cursor: pointer;
+}
+
+.chart-dot:hover {
+  r: 7.5;
+  stroke-width: 4;
+}
+
+.chart-val {
+  font-family: inherit;
+  pointer-events: none;
+}
+
+.date-row {
   position: absolute;
-  inset: 10px 18px 44px;
+  bottom: 12px;
+  left: 4.375%;
+  right: 4.375%;
   display: flex;
-  align-items: flex-end;
-  justify-content: space-around;
+  justify-content: space-between;
   z-index: 1;
 }
 
-.bar-col {
+.date-col {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-}
-
-.bar-val {
-  font-size: 11px;
-  font-weight: 700;
-  color: #2579ed;
-}
-
-.trend-bar {
-  width: 28px;
-  border-radius: 5px;
-  background: rgba(24, 164, 131, 0.48);
-  min-height: 4px;
-  transition: height 0.3s;
+  width: 0;
+  overflow: visible;
 }
 
 .bar-date {
   font-size: 11px;
   color: var(--color-muted);
   white-space: nowrap;
+  transform: translateX(-50%);
 }
 
 .chart-empty {

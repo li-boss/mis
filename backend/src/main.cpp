@@ -24,6 +24,9 @@
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 namespace {
 
@@ -40,30 +43,32 @@ int main()
 {
     const int port = 8080;
 
-    // 强制 OCI 使用 UTF-8 编码（在创建任何连接之前设置）
+    // Set OCI client encoding to UTF-8
 #ifdef _WIN32
     _putenv("NLS_LANG=AMERICAN_AMERICA.AL32UTF8");
 #endif
 
-    // ---- Oracle 初始化 ----
+    // ---- Oracle Initialization ----
 #ifdef MIS_HAS_ORACLE
     bool oracleAvailable = false;
     try {
-        mis::dao::oracle().initialize("localhost:1522/FREEPDB1", "wms", "123123");
+        // Oracle connection params: ("Host:Port/Service", "Username", "Password")
+        // PLEASE UPDATE YOUR ORACLE PASSWORD HERE (Currently set to 'wms' by default)
+        mis::dao::oracle().initialize("localhost:1521/orclpdb", "wms", "wms");
 
-        // 测试连接
+        // Test database connection
         mis::dao::oracle().acquireForCurrentThread();
         auto testRow = mis::dao::oracle().query("SELECT 1 AS OK FROM DUAL");
         mis::dao::oracle().releaseForCurrentThread();
 
         oracleAvailable = !testRow.empty();
-        std::cout << "[WMS] Oracle 连接成功 (localhost:1522/FREEPDB1)\n";
+        std::cout << "[WMS] Oracle connected successfully (localhost:1521/orclpdb)\n";
     } catch (const std::exception& ex) {
-        std::cerr << "[WMS] Oracle 不可用: " << ex.what() << "\n";
-        std::cerr << "[WMS] 降级为内存存储模式\n";
+        std::cerr << "[WMS] Oracle unavailable: " << ex.what() << "\n";
+        std::cerr << "[WMS] Downgraded to in-memory storage mode\n";
     }
 #else
-    std::cout << "[WMS] 未编译 Oracle 支持，使用内存存储模式\n";
+    std::cout << "[WMS] Oracle support not compiled, using in-memory storage mode\n";
 #endif
 
     // ---- HTTP 服务 ----
@@ -128,8 +133,8 @@ int main()
     mis::controllers::registerSkuRoutes(server);
     mis::controllers::registerSupplierRoutes(server);
 
-    std::cout << "[WMS] 后端已启动 → http://0.0.0.0:" << port << '\n';
-    std::cout << "[WMS] API 根路径 → http://localhost:" << port << "/api/inventory\n";
+    std::cout << "[WMS] Backend started -> http://0.0.0.0:" << port << '\n';
+    std::cout << "[WMS] API Route -> http://localhost:" << port << "/api/inventory\n";
     std::cout << std::flush;
 
     server.listen("0.0.0.0", port);

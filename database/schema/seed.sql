@@ -13,6 +13,9 @@ VALUES (seq_users.NEXTVAL, 'keeper', '123456', '库管员', '13800000001', 'keep
 INSERT INTO users (user_id, username, password_hash, real_name, phone, role)
 VALUES (seq_users.NEXTVAL, 'purchaser', '123456', '采购员', '13800000002', 'purchaser');
 
+INSERT INTO users (user_id, username, password_hash, real_name, phone, role)
+VALUES (seq_users.NEXTVAL, 'data_manager', '123456', '数据管理员', '13800000003', 'data_manager');
+
 -- 2. 商品分类
 INSERT INTO categories (category_id, category_name) VALUES (seq_categories.NEXTVAL, '设备');
 INSERT INTO categories (category_id, category_name) VALUES (seq_categories.NEXTVAL, '耗材');

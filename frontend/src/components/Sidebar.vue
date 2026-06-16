@@ -64,46 +64,58 @@ const visibleItems = computed(() =>
   flex-direction: column;
   justify-content: space-between;
   flex-shrink: 0;
-  padding: 42px 30px 24px;
+  padding: 42px 24px 24px;
   color: #ffffff;
-  background: var(--color-sidebar);
+  background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+  border-right: 1px solid rgba(255, 255, 255, 0.04);
 }
 
 .brand h1 {
   margin: 0;
-  font-size: 28px;
-  line-height: 1.1;
-  letter-spacing: 0;
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 800;
+  letter-spacing: -0.5px;
 }
 
 .brand p {
-  margin: 7px 0 0;
-  color: rgba(255, 255, 255, 0.68);
-  font-size: 15px;
+  margin: 4px 0 0;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
 }
 
 .nav-list {
   display: grid;
-  gap: 14px;
-  margin-top: 32px;
+  gap: 8px;
+  margin-top: 36px;
 }
 
 .nav-item {
-  min-height: 54px;
+  min-height: 46px;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   border-radius: 8px;
-  padding: 0 14px;
-  color: rgba(255, 255, 255, 0.75);
-  font-size: 18px;
-  font-weight: 700;
+  padding: 0 12px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 15px;
+  font-weight: 600;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.nav-item:hover,
+.nav-item:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.05);
+  transform: translateX(2px);
+}
+
 .nav-item.is-active {
   color: #ffffff;
   background: var(--color-primary);
+  box-shadow: 0 4px 14px rgba(37, 121, 237, 0.28);
 }
 
 .nav-icon {
@@ -113,28 +125,43 @@ const visibleItems = computed(() =>
   align-items: center;
   justify-content: center;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  transition: background-color 0.2s ease;
+}
+
+.nav-item:hover .nav-icon {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.nav-item.is-active .nav-icon {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .nav-icon svg {
-  width: 17px;
-  height: 17px;
+  width: 16px;
+  height: 16px;
 }
 
 .sidebar-profile {
   display: grid;
-  gap: 5px;
-  color: rgba(255, 255, 255, 0.68);
-  font-size: 14px;
+  gap: 4px;
+  padding: 16px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
 }
 
 .sidebar-profile strong {
   color: #ffffff;
-  font-size: 18px;
+  font-size: 16px;
+  font-weight: 700;
 }
 
 .sidebar-profile small {
-  line-height: 1.5;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.45);
 }
 
 @media (max-width: 760px) {

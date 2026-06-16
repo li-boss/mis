@@ -17,6 +17,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 
 namespace mis::services {
 
@@ -41,12 +42,12 @@ static bool oracleAvailable()
         mis::dao::DbSessionGuard db;
         mis::dao::oracle().query("SELECT 1 FROM DUAL");
         available = true;
-        std::cout << "[WMS] Oracle 检测通过，使用 Oracle 存储\n";
+        std::cout << "[WMS] Oracle connection verified, using Oracle storage\n";
     } catch (const std::exception& ex) {
-        std::cerr << "[WMS] Oracle 不可用: " << ex.what() << "，降级内存存储\n";
+        std::cerr << "[WMS] Oracle unavailable: " << ex.what() << ", using in-memory fallback\n";
         available = false;
     } catch (...) {
-        std::cerr << "[WMS] Oracle 不可用: 未知异常，降级内存存储\n";
+        std::cerr << "[WMS] Oracle unavailable: unknown error, using in-memory fallback\n";
         available = false;
     }
     return available;
@@ -687,7 +688,7 @@ static std::vector<InventoryService::TrendPoint> memGetRecentTrend(int days)
     do { \
         if (oracleAvailable()) { \
             try { return oracle##call; } catch (const std::exception& ex) { \
-                std::cerr << "[WMS] Oracle 操作失败: " << ex.what() << "，降级内存\n"; \
+                std::cerr << "[WMS] Oracle operation failed: " << ex.what() << ", using in-memory fallback\n"; \
             } \
         } \
         return mem##call; \

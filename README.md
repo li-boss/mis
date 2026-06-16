@@ -29,7 +29,7 @@ Windows 推荐：Oracle Database 23ai Free + MSYS2/MinGW-w64 + Node.js LTS。
 
 ```sql
 -- 以 SYSDBA 身份连接
-sqlplus sys/你的Sys密码@localhost:1522/FREEPDB1 as sysdba
+sqlplus sys/你的Sys密码@localhost:1521/orclpdb as sysdba
 
 -- 创建用户（可自行改名）
 CREATE USER wms IDENTIFIED BY 你的密码;
@@ -43,7 +43,7 @@ GRANT CONNECT, RESOURCE, UNLIMITED TABLESPACE TO wms;
 ```cpp
 mis::dao::oracle().initialize("你的IP:端口/PDB名", "数据库用户名", "密码");
 // 示例：
-mis::dao::oracle().initialize("localhost:1522/FREEPDB1", "wms", "123123");
+mis::dao::oracle().initialize("localhost:1521/orclpdb", "wms", "wms");
 ```
 
 ### 1.3 执行建库脚本
@@ -51,7 +51,7 @@ mis::dao::oracle().initialize("localhost:1522/FREEPDB1", "wms", "123123");
 用 sqlplus 以你刚创建的用户身份连接，依次执行：
 
 ```bash
-sqlplus wms/你的密码@localhost:1522/FREEPDB1
+sqlplus wms/你的密码@localhost:1521/orclpdb
 ```
 
 ```sql
@@ -74,6 +74,7 @@ sqlplus wms/你的密码@localhost:1522/FREEPDB1
 | `admin` | `123456` | 管理员 | 全部权限 |
 | `keeper` | `123456` | 库管员 | 入库操作 |
 | `purchaser` | `123456` | 采购员 | 采购下单 |
+| `data_manager` | `123456` | 数据管理员 | 商品/SKU与供应商数据管理 |
 
 ---
 

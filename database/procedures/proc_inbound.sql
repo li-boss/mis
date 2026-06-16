@@ -52,17 +52,14 @@ BEGIN
     -- 批量插入明细行：解析 JSON 数组，逐条插入
     -- 注意：Oracle 12c+ 可用 JSON_TABLE，此处用循环逐条解析以兼容 11g
     FOR rec IN (
-        SELECT
-            TO_NUMBER(JSON_VALUE(p_lines_json, '$[' || (rownum_ - 1) || '].product_id'))  AS product_id,
-            TO_NUMBER(JSON_VALUE(p_lines_json, '$[' || (rownum_ - 1) || '].quantity'))    AS quantity,
-            TO_NUMBER(JSON_VALUE(p_lines_json, '$[' || (rownum_ - 1) || '].unit_price'))  AS unit_price
-        FROM (
-            SELECT LEVEL AS rownum_
-            FROM DUAL
-            CONNECT BY LEVEL <= (
-                SELECT COUNT(*) FROM JSON_TABLE(p_lines_json, '$[*]' COLUMNS (dummy VARCHAR2(1) PATH '$'))
+        SELECT jt.product_id, jt.quantity, jt.unit_price
+        FROM JSON_TABLE(p_lines_json, '$[*]'
+            COLUMNS (
+                product_id  NUMBER        PATH '$.product_id',
+                quantity    NUMBER(12, 3) PATH '$.quantity',
+                unit_price  NUMBER(12, 2) PATH '$.unit_price'
             )
-        )
+        ) jt
     ) LOOP
         -- 校验商品存在且供应商已关联
         DECLARE
@@ -133,6 +130,7 @@ CREATE OR REPLACE PROCEDURE proc_inbound_receive (
     v_all_received      NUMBER;
     v_total_lines       NUMBER;
     v_full_lines        NUMBER;
+    v_new_version       NUMBER(10);
     PRAGMA AUTONOMOUS_TRANSACTION;
 BEGIN
     -- ===== ① 校验明细行存在 + 入库单状态 =====
@@ -186,11 +184,16 @@ BEGIN
         v_inv_count NUMBER;
     BEGIN
         SELECT COUNT(*) INTO v_inv_count FROM inventory
-        WHERE product_id = v_product_id FOR UPDATE;
+        WHERE product_id = v_product_id;
 
         IF v_inv_count = 0 THEN
-            INSERT INTO inventory (inventory_id, product_id, quantity, version, updated_at)
-            VALUES (seq_inventory.NEXTVAL, v_product_id, 0, 0, SYSTIMESTAMP);
+            BEGIN
+                INSERT INTO inventory (inventory_id, product_id, quantity, version, updated_at)
+                VALUES (seq_inventory.NEXTVAL, v_product_id, 0, 0, SYSTIMESTAMP);
+            EXCEPTION
+                WHEN DUP_VAL_ON_INDEX THEN
+                    NULL;
+            END;
         END IF;
 
         SELECT quantity, version
