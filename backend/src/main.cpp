@@ -54,7 +54,7 @@ int main()
     try {
         // Oracle connection params: ("Host:Port/Service", "Username", "Password")
         // PLEASE UPDATE YOUR ORACLE PASSWORD HERE (Currently set to 'wms' by default)
-        mis::dao::oracle().initialize("localhost:1521/orclpdb", "wms", "wms");
+        mis::dao::oracle().initialize("localhost:1522/FREEPDB1", "wms", "123123");
 
         // Test database connection
         mis::dao::oracle().acquireForCurrentThread();
@@ -62,7 +62,7 @@ int main()
         mis::dao::oracle().releaseForCurrentThread();
 
         oracleAvailable = !testRow.empty();
-        std::cout << "[WMS] Oracle connected successfully (localhost:1521/orclpdb)\n";
+        std::cout << "[WMS] Oracle connected successfully\n";
     } catch (const std::exception& ex) {
         std::cerr << "[WMS] Oracle unavailable: " << ex.what() << "\n";
         std::cerr << "[WMS] Downgraded to in-memory storage mode\n";

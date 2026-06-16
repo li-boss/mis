@@ -8,6 +8,7 @@ import request, { isMockEnabled, mockWait } from './request';
 // Mock 看板数据
 const mockOverview = {
   totalStock: 12860,
+  previousTotalStock: 12434,   // totalStock - inboundToday
   inboundToday: 426,
   lowStockSku: 18,
   exceptionCount: 3,
@@ -36,6 +37,7 @@ export async function getDashboardOverview(params = {}) {
 
   return {
     totalStock: data.totalStock ?? data.total_stock ?? 0,
+    previousTotalStock: data.previousTotalStock ?? data.previous_total_stock ?? 0,
     inboundToday: data.inboundToday ?? data.inbound_today ?? 0,
     lowStockSku: data.lowStockSku ?? data.low_stock_sku ?? 0,
     exceptionCount: data.exceptionCount ?? data.exception_count ?? 0,

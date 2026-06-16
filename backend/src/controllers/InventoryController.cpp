@@ -219,6 +219,7 @@ void InventoryController::registerRoutes(httplib::Server& server)
             res.status = 200;
             res.set_content(ok(json{
                 {"totalStock", stats.totalStock},
+                {"previousTotalStock", stats.previousTotalStock},
                 {"inboundToday", stats.inboundToday},
                 {"lowStockSku", stats.lowStockSku},
                 {"exceptionCount", stats.exceptionCount},

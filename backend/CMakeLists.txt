@@ -9,10 +9,7 @@ find_package(Threads REQUIRED)
 
 # ---- httplib (header-only, at D:/dev/db or G:/database) ----
 find_path(HTTPLIB_INCLUDE_DIR httplib.h
-    HINTS 
-        "D:/dev/db"
-        "G:/database/include/third_party"
-        "${CMAKE_SOURCE_DIR}/../../database/include/third_party"
+    HINTS "D:/dev/db"
 )
 if(NOT HTTPLIB_INCLUDE_DIR)
     message(FATAL_ERROR "httplib.h not found. Checked D:/dev/db, G:/database/include/third_party, and relative paths.")
@@ -27,7 +24,7 @@ if(NOT NLOHMANN_JSON_INCLUDE_DIR)
 endif()
 
 # ---- Oracle OCI — 23ai Free ----
-set(ORACLE_HOME "G:/oracle" CACHE PATH "Oracle 23ai Free install dir")
+set(ORACLE_HOME "D:/tools/26ai/dbhomeFree" CACHE PATH "Oracle 23ai Free install dir")
 
 find_path(OCI_INCLUDE_DIR oci.h
     HINTS "${ORACLE_HOME}/oci/include"

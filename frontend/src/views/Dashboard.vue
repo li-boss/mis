@@ -7,7 +7,7 @@ import { getDashboardOverview } from '../api/dashboard';
 const router = useRouter();
 const loading = ref(false);
 const overview = reactive({
-  totalStock: 0, inboundToday: 0, lowStockSku: 0, exceptionCount: 0, pendingInbound: 0
+  totalStock: 0, previousTotalStock: 0, inboundToday: 0, lowStockSku: 0, exceptionCount: 0, pendingInbound: 0
 });
 const trend = ref([]);
 
@@ -25,6 +25,7 @@ const loadDashboard = async () => {
     const data = await getDashboardOverview({ warehouseCode: whCode });
     Object.assign(overview, {
       totalStock: data.totalStock,
+      previousTotalStock: data.previousTotalStock,
       inboundToday: data.inboundToday,
       lowStockSku: data.lowStockSku,
       exceptionCount: data.exceptionCount,
@@ -78,6 +79,22 @@ const barItems = computed(() => {
   }));
 });
 
+// ---- 较昨日总库存变化百分比 ----
+const stockChangePercent = computed(() => {
+  const prev = overview.previousTotalStock;
+  const curr = overview.totalStock;
+  // 前一日库存为 0 时无法计算有意义的百分比，不显示
+  if (prev <= 0) return null;
+  return ((curr - prev) / prev * 100);
+});
+
+const stockChangeLabel = computed(() => {
+  if (stockChangePercent.value === null) return '';
+  const pct = stockChangePercent.value;
+  const sign = pct >= 0 ? '+' : '';
+  return `较昨日 ${sign}${pct.toFixed(1)}%`;
+});
+
 onMounted(loadDashboard);
 </script>
 
@@ -108,7 +125,7 @@ onMounted(loadDashboard);
       <article class="stat-card">
         <div class="stat-label">总库存</div>
         <div class="stat-value">{{ overview.totalStock.toLocaleString() }}</div>
-        <span class="tag tag-primary">较昨日 +3.2%</span>
+        <span class="tag tag-primary" v-if="stockChangeLabel">{{ stockChangeLabel }}</span>
       </article>
       <article class="stat-card">
         <div class="stat-label">今日入库</div>

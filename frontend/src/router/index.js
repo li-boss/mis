@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router';
+import { useUserStore } from '../store/user';
 
 const routes = [
   {
@@ -66,19 +67,21 @@ const router = createRouter({
 router.beforeEach((to) => {
   document.title = `${to.meta.title || 'WMS'} - WMS Inventory`;
 
-  const token = window.localStorage.getItem('wms_token');
-  const rawUser = window.localStorage.getItem('wms_user');
-  const user = rawUser ? JSON.parse(rawUser) : null;
+  // 使用 store 而非直接读 localStorage，确保 token 已通过 fetchProfile 验证
+  const userStore = useUserStore();
 
-  if (to.meta.public && token && to.name !== 'Register') {
+  // 已登录用户访问公开页面（登录/注册）→ 跳转到看板
+  if (to.meta.public && userStore.isAuthenticated && to.name !== 'Register') {
     return { path: '/dashboard' };
   }
 
-  if (to.meta.requiresAuth && !token) {
+  // 需鉴权页面但未登录 → 跳转到登录页
+  if (to.meta.requiresAuth && !userStore.isAuthenticated) {
     return { path: '/login', query: { redirect: to.fullPath } };
   }
 
-  if (to.meta.roles?.length && user?.role && !to.meta.roles.includes(user.role)) {
+  // 角色权限检查
+  if (to.meta.roles?.length && userStore.profile?.role && !to.meta.roles.includes(userStore.profile.role)) {
     return { path: '/dashboard' };
   }
 

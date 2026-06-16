@@ -30,6 +30,7 @@ public:
     // 看板统计
     struct DashboardStats {
         int totalStock{0};
+        int previousTotalStock{0};   // 前一日总库存，用于计算变化百分比
         int inboundToday{0};
         int lowStockSku{0};
         int exceptionCount{0};

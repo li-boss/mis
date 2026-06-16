@@ -334,11 +334,23 @@ static InventoryService::DashboardStats oracleGetDashboard(int warehouseId)
         {{"wh", std::to_string(warehouseId)}});
     if (!r1.empty()) s.totalStock = std::stoi(r1[0].at("T"));
 
+    // 昨日总库存：直接查询今天之前创建、未取消订单的已收总量
+    // （无逐笔收货时间戳，以订单创建日期近似，同一订单的收货归入创建日）
+    auto r0 = mis::dao::oracle().query(
+        "SELECT NVL(SUM(iol.quantity_received), 0) AS T "
+        "FROM inbound_order_lines iol "
+        "JOIN inbound_orders io ON iol.inbound_id = io.inbound_id "
+        "WHERE io.status NOT IN ('CANCELLED') "
+        "  AND TRUNC(io.created_at) < TRUNC(SYSDATE)");
+    if (!r0.empty()) s.previousTotalStock = std::stoi(r0[0].at("T"));
+
     auto r2 = mis::dao::oracle().query(
         "SELECT NVL(SUM(iol.quantity_received), 0) AS T "
         "FROM inbound_order_lines iol "
         "JOIN inbound_orders io ON iol.inbound_id = io.inbound_id "
-        "WHERE TRUNC(io.created_at) = TRUNC(SYSDATE)");
+        "WHERE io.status NOT IN ('CANCELLED') "
+        "  AND (TRUNC(io.created_at) = TRUNC(SYSDATE) "
+        "       OR (io.received_at IS NOT NULL AND TRUNC(io.received_at) = TRUNC(SYSDATE)))");
     if (!r2.empty()) s.inboundToday = std::stoi(r2[0].at("T"));
 
     auto r3 = mis::dao::oracle().query(
@@ -571,12 +583,15 @@ static InventoryService::DashboardStats memGetDashboard(int /*warehouseId*/)
 {
     InventoryService::DashboardStats s;
     s.totalStock = 12860;
+    s.inboundToday = 0;
     s.pendingInbound = 0;
     for (const auto& o : memOrders) {
         if (o.status == "DRAFT" || o.status == "SUBMITTED" || o.status == "PARTIAL") s.pendingInbound++;
         if (o.status == "CANCELLED") s.exceptionCount++;
         for (const auto& l : o.lines) s.inboundToday += l.quantityReceived;
     }
+    // 内存模式下以所有非取消订单的已收量作为 previousTotalStock（仅 demo 用途）
+    s.previousTotalStock = s.totalStock - s.inboundToday;
     // 低库存：统计待收货商品中库存不足的（简化逻辑）
     s.lowStockSku = s.totalStock < 100 ? 3 : 0;
     return s;

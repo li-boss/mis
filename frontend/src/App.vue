@@ -16,10 +16,15 @@ const handleAuthExpired = () => {
   }
 };
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener('wms:auth-expired', handleAuthExpired);
-  if (userStore.token && !userStore.profile) {
-    userStore.fetchProfile();
+  // 始终验证 token 有效性，防止使用过期 token 自动登录
+  if (userStore.token) {
+    await userStore.fetchProfile();
+    // 验证通过且当前在公开页 → 跳转到看板
+    if (userStore.isAuthenticated && route.meta.public && route.name !== 'Register') {
+      router.push('/dashboard');
+    }
   }
 });
 
