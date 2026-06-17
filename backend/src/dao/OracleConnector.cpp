@@ -167,28 +167,8 @@ std::vector<std::unordered_map<std::string, std::string>> OracleConnector::query
     status = OCIStmtPrepare(stmthp, conn->errhp, (text*)sql.c_str(), sql.length(), OCI_NTV_SYNTAX, OCI_DEFAULT);
     checkOciError(status, conn->errhp, "OCIStmtPrepare");
 
-    struct BindInfo {
-        std::string name;
-        std::string value;
-        OCIBind* bindhp{nullptr};
-    };
-    std::vector<BindInfo> binds;
-    binds.reserve(bindValues.size());
-    for (const auto& kv : bindValues) {
-        BindInfo b;
-        b.name = kv.first[0] == ':' ? kv.first : ":" + kv.first;
-        b.value = kv.second;
-        binds.push_back(b);
-    }
-
-    for (auto& b : binds) {
-        status = OCIBindByName(stmthp, &b.bindhp, conn->errhp,
-                               (text*)b.name.c_str(), b.name.length(),
-                               (void*)b.value.c_str(), b.value.length() + 1,
-                               SQLT_STR, nullptr, nullptr, nullptr, 0, nullptr, OCI_DEFAULT);
-        checkOciError(status, conn->errhp, "OCIBindByName for " + b.name);
-    }
-
+    // ---- Step 1: Describe only (no binds yet) to get column metadata ----
+    //     Oracle 23ai throws ORA-01745 if binds are set before describe-only execute
     status = OCIStmtExecute(conn->svchp, stmthp, conn->errhp, 0, 0, nullptr, nullptr, OCI_DEFAULT);
     checkOciError(status, conn->errhp, "OCIStmtExecute (describe)");
 
@@ -225,6 +205,38 @@ std::vector<std::unordered_map<std::string, std::string>> OracleConnector::query
         OCIDescriptorFree(parh, OCI_DTYPE_PARAM);
     }
 
+    // ---- Step 2: Bind variables and execute if there are binds ----
+    //     Bind AFTER describe+define to avoid ORA-01745 in Oracle 23ai describe mode
+    struct BindInfo {
+        std::string name;
+        std::string value;
+        OCIBind* bindhp{nullptr};
+    };
+    std::vector<BindInfo> binds;
+    binds.reserve(bindValues.size());
+    for (const auto& kv : bindValues) {
+        BindInfo b;
+        b.name = kv.first[0] == ':' ? kv.first : ":" + kv.first;
+        b.value = kv.second;
+        binds.push_back(b);
+    }
+
+    for (auto& b : binds) {
+        status = OCIBindByName(stmthp, &b.bindhp, conn->errhp,
+                               (text*)b.name.c_str(), b.name.length(),
+                               (void*)b.value.c_str(), b.value.length() + 1,
+                               SQLT_STR, nullptr, nullptr, nullptr, 0, nullptr, OCI_DEFAULT);
+        checkOciError(status, conn->errhp, "OCIBindByName for " + b.name);
+    }
+
+    if (!binds.empty()) {
+        // Re-execute with iters=1 so Oracle actually runs the query with bind values.
+        // The describe-only call above (iters=0) already validated the SQL structure.
+        status = OCIStmtExecute(conn->svchp, stmthp, conn->errhp, 1, 0, nullptr, nullptr, OCI_DEFAULT);
+        checkOciError(status, conn->errhp, "OCIStmtExecute (query exec)");
+    }
+
+    // ---- Step 3: Fetch rows ----
     std::vector<std::unordered_map<std::string, std::string>> results;
     while (true) {
         sword fetchStatus = OCIStmtFetch2(stmthp, conn->errhp, 1, OCI_FETCH_NEXT, 0, OCI_DEFAULT);

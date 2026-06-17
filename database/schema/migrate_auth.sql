@@ -6,7 +6,7 @@
 -- 1. 扩展角色约束：同时接受小写（代码用）和大写（Oracle 惯例）
 ALTER TABLE users DROP CONSTRAINT ck_users_role;
 ALTER TABLE users ADD CONSTRAINT ck_users_role
-    CHECK (role IN ('admin', 'keeper', 'purchaser', 'data_manager',
+    CHECK (role IN ('admin', 'keeper', 'purchaser',
                     'ADMIN', 'OPERATOR', 'CUSTOMER'));
 
 -- 2. 添加 real_name 列（用于 JWT claims）

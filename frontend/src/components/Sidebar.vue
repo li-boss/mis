@@ -14,7 +14,7 @@ const userStore = useUserStore();
 const navItems = [
   { title: '库存看板', path: '/dashboard', icon: LayoutDashboard, roles: ['keeper', 'admin'] },
   { title: '入库登记', path: '/inbound', icon: PackagePlus, roles: ['keeper', 'purchaser', 'admin'] },
-  { title: 'SKU 管理', path: '/sku', icon: Boxes, roles: ['data_manager', 'admin'] },
+  { title: 'SKU 管理', path: '/sku', icon: Boxes, roles: ['admin'] },
   { title: '供应商管理', path: '/supplier', icon: Truck, roles: ['purchaser', 'admin'] },
   { title: '系统设置', path: '/settings', icon: Settings, roles: ['admin'] }
 ];

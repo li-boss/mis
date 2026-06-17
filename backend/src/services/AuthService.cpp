@@ -18,10 +18,9 @@ namespace mis::services {
 
 // ---- 角色映射 ----
 static const std::unordered_map<std::string, std::string> ROLE_NAMES = {
-    {"admin",        "系统管理员"},
-    {"keeper",       "库管员"},
-    {"purchaser",    "采购员"},
-    {"data_manager", "数据管理员"}
+    {"admin",     "系统管理员"},
+    {"keeper",    "库管员"},
+    {"purchaser", "采购员"}
 };
 
 std::string AuthService::roleToName(const std::string& role)
@@ -216,7 +215,6 @@ void initMemUsers()
     memUsers.push_back({memNextId++, "admin",    "123456", "管理员",     "admin"});
     memUsers.push_back({memNextId++, "keeper",   "123456", "库管员",     "keeper"});
     memUsers.push_back({memNextId++, "buyer",    "123456", "采购员",     "purchaser"});
-    memUsers.push_back({memNextId++, "data_mgr", "123456", "数据管理员", "data_manager"});
 }
 
 AuthService::AuthUser memToUser(const MemUser& m)

@@ -22,7 +22,7 @@ CREATE TABLE users (
     created_at    TIMESTAMP        DEFAULT SYSTIMESTAMP NOT NULL,
     CONSTRAINT pk_users PRIMARY KEY (user_id),
     CONSTRAINT uk_users_username UNIQUE (username),
-    CONSTRAINT ck_users_role CHECK (role IN ('admin', 'keeper', 'purchaser', 'data_manager',
+    CONSTRAINT ck_users_role CHECK (role IN ('admin', 'keeper', 'purchaser',
                                               'ADMIN', 'OPERATOR', 'CUSTOMER'))
 );
 

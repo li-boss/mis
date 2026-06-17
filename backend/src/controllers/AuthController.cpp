@@ -37,7 +37,7 @@ void AuthController::registerRoutes(httplib::Server& server)
 {
     // ---- 角色定义 ----
     static const std::vector<std::string> VALID_ROLES = {
-        "admin", "keeper", "purchaser", "data_manager"
+        "admin", "keeper", "purchaser"
     };
 
     // ---- 注册 ----

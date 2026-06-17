@@ -11,8 +11,7 @@ const loading = ref(false);
 const roleOptions = [
   { value: 'admin', label: '系统管理员' },
   { value: 'keeper', label: '库管员' },
-  { value: 'purchaser', label: '采购员' },
-  { value: 'data_manager', label: '数据管理员' }
+  { value: 'purchaser', label: '采购员' }
 ];
 
 const roleLabel = (role) => {

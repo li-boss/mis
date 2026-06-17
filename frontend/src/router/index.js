@@ -37,7 +37,7 @@ const routes = [
     meta: {
       title: 'SKU/商品管理',
       requiresAuth: true,
-      roles: ['data_manager', 'admin']
+      roles: ['admin']
     }
   },
   {
